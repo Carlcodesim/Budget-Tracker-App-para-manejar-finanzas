@@ -1,0 +1,8 @@
+{
+  "name": "Remix Budget Tracker",
+  "description": "Gestor de presupuesto personal 100% offline con Jetpack Compose y Room Database",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
