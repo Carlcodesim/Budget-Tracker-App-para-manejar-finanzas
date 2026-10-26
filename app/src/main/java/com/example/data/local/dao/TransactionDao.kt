@@ -6,6 +6,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.data.local.entity.TransactionEntity
 import kotlinx.coroutines.flow.Flow
@@ -64,6 +65,20 @@ interface TransactionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllTransactions(transactions: List<TransactionEntity>)
+
+    /**
+     * Inserta ambos lados de una transferencia dentro de una única transacción SQL.
+     * Si falla cualquiera de las inserciones, Room revierte las dos.
+     */
+    @Transaction
+    suspend fun insertTransferPair(
+        outgoing: TransactionEntity,
+        incoming: TransactionEntity
+    ): Pair<Long, Long> {
+        val outgoingId = insertTransaction(outgoing)
+        val incomingId = insertTransaction(incoming)
+        return outgoingId to incomingId
+    }
 
     @Update
     suspend fun updateTransaction(transaction: TransactionEntity)
