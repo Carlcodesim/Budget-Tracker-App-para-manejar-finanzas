@@ -158,6 +158,13 @@ class TransactionRepositoryImpl(
         return transactionDao.insertTransaction(transaction.toEntity())
     }
 
+    override suspend fun insertTransferPair(
+        outgoing: Transaction,
+        incoming: Transaction
+    ): Pair<Long, Long> {
+        return transactionDao.insertTransferPair(outgoing.toEntity(), incoming.toEntity())
+    }
+
     override suspend fun updateTransaction(transaction: Transaction) {
         transactionDao.updateTransaction(transaction.toEntity())
     }
