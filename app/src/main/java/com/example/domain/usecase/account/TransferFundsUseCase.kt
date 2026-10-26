@@ -62,7 +62,6 @@ class TransferFundsUseCase(
             accountId = sourceAccount.id,
             tags = "TRANSFER,OUT,CORR:$correlationId"
         )
-        val outgoingId = transactionRepository.insertTransaction(outTx)
 
         // 2. Movimiento entrante (cuenta destino)
         val inTx = Transaction(
@@ -74,7 +73,8 @@ class TransferFundsUseCase(
             accountId = targetAccount.id,
             tags = "TRANSFER,IN,CORR:$correlationId"
         )
-        val incomingId = transactionRepository.insertTransaction(inTx)
+        // Persistir ambos lados en una sola transacción SQL.
+        val (outgoingId, incomingId) = transactionRepository.insertTransferPair(outTx, inTx)
 
         return TransferResult.Success(
             outgoingTxId = outgoingId,
