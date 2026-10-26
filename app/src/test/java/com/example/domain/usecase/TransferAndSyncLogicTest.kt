@@ -105,15 +105,25 @@ class TransferAndSyncLogicTest {
             END
         """.trimIndent())
 
+        var transferFailure: Throwable? = null
         try {
             transferFundsUseCase(
                 sourceAccountId = 1L,
                 targetAccountId = 2L,
                 amount = 100.0
             )
-        } catch (_: Exception) {
-            // Esperado: el trigger rechaza el segundo movimiento.
+        } catch (error: Exception) {
+            transferFailure = error
         }
+
+        assertTrue("La inserción entrante debía fallar por el trigger", transferFailure != null)
+        val failureChain = generateSequence(transferFailure) { it.cause }
+        assertTrue(
+            "El fallo debía proceder del trigger de prueba",
+            failureChain.any {
+                it.message?.contains("simulated incoming transfer failure", ignoreCase = true) == true
+            }
+        )
 
         // La transacción SQL debe revertir también el primer movimiento.
         val txs = transactionRepo.getAllTransactions().first()
