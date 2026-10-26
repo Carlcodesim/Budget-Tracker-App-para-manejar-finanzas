@@ -94,6 +94,37 @@ class TransferAndSyncLogicTest {
     }
 
     @Test
+    fun failedIncomingTransferRollsBackOutgoingTransfer() = runBlocking {
+        // Simular un fallo al insertar el movimiento de entrada.
+        database.openHelper.writableDatabase.execSQL("""
+            CREATE TRIGGER fail_transfer_in
+            BEFORE INSERT ON transactions
+            WHEN NEW.tags LIKE '%TRANSFER,IN,%'
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated incoming transfer failure');
+            END
+        """.trimIndent())
+
+        try {
+            transferFundsUseCase(
+                sourceAccountId = 1L,
+                targetAccountId = 2L,
+                amount = 100.0
+            )
+        } catch (_: Exception) {
+            // Esperado: el trigger rechaza el segundo movimiento.
+        }
+
+        // La transacción SQL debe revertir también el primer movimiento.
+        val txs = transactionRepo.getAllTransactions().first()
+        assertEquals(0, txs.size)
+
+        val accounts = accountRepo.getAllAccounts().first()
+        assertEquals(1000.0, accounts.find { it.id == 1L }!!.currentBalance, 0.01)
+        assertEquals(500.0, accounts.find { it.id == 2L }!!.currentBalance, 0.01)
+    }
+
+    @Test
     fun deleteCorrelatedTransferCleansBothSidesAndRestoresBalances() = runBlocking {
         val transferResult = transferFundsUseCase(
             sourceAccountId = 1L,
