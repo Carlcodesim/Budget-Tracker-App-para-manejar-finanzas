@@ -10,6 +10,11 @@ plugins {
   // alias(libs.plugins.firebase.perf)
 }
 
+// Export Room schemas so future database versions can be reviewed and migration-tested.
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
