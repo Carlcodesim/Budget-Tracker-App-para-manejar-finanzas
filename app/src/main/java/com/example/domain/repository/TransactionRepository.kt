@@ -19,6 +19,7 @@ interface TransactionRepository {
     suspend fun getTransactionsByAccountId(accountId: Long): List<Transaction>
     suspend fun getTransactionsByCorrelationId(correlationId: String): List<Transaction>
     suspend fun insertTransaction(transaction: Transaction): Long
+    suspend fun insertTransferPair(outgoing: Transaction, incoming: Transaction): Pair<Long, Long>
     suspend fun updateTransaction(transaction: Transaction)
     suspend fun deleteTransaction(transaction: Transaction)
     suspend fun deleteTransactions(transactions: List<Transaction>)
