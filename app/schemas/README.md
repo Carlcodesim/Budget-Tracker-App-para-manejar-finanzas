@@ -14,7 +14,9 @@ An uploaded APK named `base.apk` was inspected on 2026-10-27. SHA-256:
 
 The APK contains Room's generated `AppDatabase_Impl` and the app migration implementations for 7→8, 9→10, 10→11, and 11→12. Its current Room schema includes these seven app tables: `transactions`, `categories`, `savings_goals`, `reminders`, `accounts`, `recurring_expenses`, and `businesses`. The generated implementation contains current identity hash `86254750241babac4b8d52996a675549` and legacy hash `16ac758fb3645c784d1e2c847837bdf5`.
 
-This is evidence about the APK's current generated schema, but it does not provide the missing historical schema definitions. The APK also does not contain an app migration 8→9. The legacy identity hash alone is not enough to safely infer the exact version-11 schema or write migration SQL.
+This is evidence about the APK's current generated schema. The current schema SQL in the APK matches the seven tables and columns represented by the current Room entities in source. The recent merged transfer-atomicity PR changes transaction insertion logic, repository/use-case code, tests, and CI configuration; it does not change `AppDatabase`, entity definitions, the Room version, or migration SQL, so it does not itself require a Room schema-version bump.
+
+The APK does not contain an app migration 8→9. The legacy identity hash is Room's compatibility hash, not a historical schema export; it is not enough to safely infer the exact version-11 schema or write migration SQL.
 
 ## Safety rules
 
