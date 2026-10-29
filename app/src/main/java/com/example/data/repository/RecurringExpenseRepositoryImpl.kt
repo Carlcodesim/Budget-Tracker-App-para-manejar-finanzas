@@ -178,6 +178,9 @@ class RecurringExpenseRepositoryImpl(
         val currentMonth = nowCal.get(Calendar.MONTH) + 1
         val yearMonthKey = String.format(Locale.US, "%04d-%02d", currentYear, currentMonth)
 
+        // Una recurrencia solo puede generar un pago por mes; evita duplicados al tocar ejecutar varias veces.
+        if (expense.lastExecutedMonth == yearMonthKey) return false
+
         val descriptionText = buildString {
             append("[Gasto Recurrente] ")
             append(expense.title)
