@@ -19,6 +19,7 @@ import com.example.data.local.entity.TransactionEntity
 import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.BusinessEntity
+import com.example.data.local.entity.RecurringExpenseEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
