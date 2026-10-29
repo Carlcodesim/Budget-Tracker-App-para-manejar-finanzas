@@ -21,5 +21,8 @@ The APK does not contain an app migration 8→9. The legacy identity hash is Roo
 ## Safety rules
 
 - Do not fabricate historical schema files. Versions 1–11 must come from historical builds, archived APKs, or trustworthy database backups before they are used to implement migration paths.
-- Before changing or removing `.fallbackToDestructiveMigration(true)`, verify all upgrade paths used by installed releases and add migration tests that preserve representative financial records.
+- A safety change on this branch removes `.fallbackToDestructiveMigration(true)`. If Room cannot find a migration path, opening the database should fail instead of silently dropping the database. This is a data-preservation improvement, but it is **not release-ready by itself**: older users may be unable to open the app until a recovery flow is implemented and tested.
+- `DestructiveMigrationSafetyTest.kt` creates a synthetic v8 SQLite database with a sentinel row and checks that an unsupported migration path throws without deleting the file's data. This test does not claim to reconstruct the full v8 schema. It has been added but has not yet been executed in this audit.
+- The existing JSON backup in `BackupManager.kt` exports accounts, categories, transactions, reminders, savings goals, and recurring expenses, but does not export the `businesses` table. The importer also performs separate DAO writes rather than one all-or-nothing database transaction. Therefore, the current JSON must not be described as a complete, atomic database backup until that is corrected and tested.
+- Before releasing this safety change, implement a user-friendly recovery path for unsupported versions and add migration tests for the known 9→12 route using verified v9 schema evidence.
 - Keep this audit on its own branch; do not change `main` or merge a PR without explicit approval.
