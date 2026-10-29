@@ -104,7 +104,9 @@ abstract class AppDatabase : RoomDatabase() {
                     "budget_tracker_database"
                 )
                     .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
-                    .fallbackToDestructiveMigration(true)
+                    // Deliberately do not use fallbackToDestructiveMigration: if a migration path is
+                    // missing, Room must fail rather than silently erase financial records.
+                    // Legacy-version recovery UX and migration coverage must be validated separately.
                     .addCallback(AppDatabaseCallback(scope))
                     .build()
                 INSTANCE = instance
