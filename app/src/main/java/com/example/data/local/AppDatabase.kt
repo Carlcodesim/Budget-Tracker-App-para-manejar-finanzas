@@ -19,7 +19,6 @@ import com.example.data.local.entity.TransactionEntity
 import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.BusinessEntity
-import com.example.data.local.entity.RecurringExpenseEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -125,7 +124,6 @@ abstract class AppDatabase : RoomDatabase() {
                     populateDefaultCategories(database.categoryDao())
                     populateDefaultReminders(database.reminderDao())
                     populateDefaultAccounts(database.accountDao())
-                    populateDefaultRecurringExpenses(database.recurringExpenseDao())
                     populateDefaultBusinesses(database.businessDao())
                 }
             }
@@ -157,56 +155,6 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 )
             }
-        }
-
-        private suspend fun populateDefaultRecurringExpenses(recurringExpenseDao: RecurringExpenseDao) {
-            val defaultRecurringExpenses = listOf(
-                RecurringExpenseEntity(
-                    id = 1,
-                    title = "Netflix",
-                    amount = 599.0,
-                    categoryId = 4, // Ocio
-                    accountId = 3, // Tarjeta de débito
-                    dayOfMonth = 15,
-                    description = "Suscripción Premium 4K",
-                    isEnabled = true,
-                    autoCreate = true
-                ),
-                RecurringExpenseEntity(
-                    id = 2,
-                    title = "Internet Fibra Óptica",
-                    amount = 2200.0,
-                    categoryId = 7, // Servicios
-                    accountId = 2, // Cuenta bancaria
-                    dayOfMonth = 20,
-                    description = "Plan hogar 300 Mbps",
-                    isEnabled = true,
-                    autoCreate = true
-                ),
-                RecurringExpenseEntity(
-                    id = 3,
-                    title = "Gimnasio",
-                    amount = 1500.0,
-                    categoryId = 5, // Salud
-                    accountId = 3, // Tarjeta de débito
-                    dayOfMonth = 5,
-                    description = "Membresía mensual fitness",
-                    isEnabled = true,
-                    autoCreate = true
-                ),
-                RecurringExpenseEntity(
-                    id = 4,
-                    title = "Alquiler / Mantenimiento",
-                    amount = 15000.0,
-                    categoryId = 7, // Servicios
-                    accountId = 2, // Cuenta bancaria
-                    dayOfMonth = 1,
-                    description = "Pago mensual de vivienda",
-                    isEnabled = true,
-                    autoCreate = true
-                )
-            )
-            recurringExpenseDao.insertRecurringExpenses(defaultRecurringExpenses)
         }
 
         private suspend fun populateDefaultCategories(categoryDao: CategoryDao) {
