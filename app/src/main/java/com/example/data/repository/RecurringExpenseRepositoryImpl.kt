@@ -213,7 +213,7 @@ class RecurringExpenseRepositoryImpl(
         val currentExpense = recurringExpenseDao.getRecurringExpenseById(expenseId)
             ?: return@withTransaction null
 
-        if (!currentExpense.isEnabled || currentExpense.lastExecutedMonth == yearMonth) {
+        if (currentExpense.lastExecutedMonth == yearMonth) {
             return@withTransaction null
         }
 
