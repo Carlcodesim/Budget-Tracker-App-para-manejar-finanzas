@@ -91,6 +91,7 @@ class AppContainer(val context: Context) {
 
     val recurringExpenseRepository: RecurringExpenseRepository by lazy {
         RecurringExpenseRepositoryImpl(
+            database = database,
             recurringExpenseDao = database.recurringExpenseDao(),
             categoryDao = database.categoryDao(),
             accountDao = database.accountDao(),
