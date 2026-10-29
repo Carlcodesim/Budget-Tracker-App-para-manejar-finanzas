@@ -1,8 +1,10 @@
 package com.example.presentation.common.util
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AccountEntity
+import com.example.data.local.entity.BusinessEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.SavingsGoalEntity
@@ -93,6 +95,7 @@ object BackupManager {
         val reminders = db.reminderDao().getAllReminders().first()
         val savingsGoals = db.savingsGoalDao().getAllSavingsGoals().first()
         val recurringExpenses = db.recurringExpenseDao().getAllRecurringExpensesSync()
+        val businesses = db.businessDao().getAllBusinesses().first()
 
         val rootJson = JSONObject()
         rootJson.put("version", 1)
@@ -206,6 +209,23 @@ object BackupManager {
         }
         rootJson.put("recurringExpenses", recurringArray)
 
+        // Businesses
+        val businessesArray = JSONArray()
+        businesses.forEach { business ->
+            val obj = JSONObject().apply {
+                put("id", business.id)
+                put("name", business.name)
+                put("type", business.type)
+                put("description", business.description)
+                put("colorHex", business.colorHex)
+                put("iconKey", business.iconKey)
+                put("inventoryValue", business.inventoryValue)
+                put("createdAt", business.createdAt)
+            }
+            businessesArray.put(obj)
+        }
+        rootJson.put("businesses", businessesArray)
+
         // Actualizar sello de fecha de último respaldo
         setLastBackupTimestamp(context, System.currentTimeMillis())
 
@@ -217,6 +237,7 @@ object BackupManager {
      */
     suspend fun importBackupFromJson(context: Context, db: AppDatabase, jsonString: String): Int {
         val rootJson = JSONObject(jsonString)
+        val restoredCount = db.withTransaction {
         var restoredCount = 0
 
         // Restore Accounts
@@ -376,6 +397,30 @@ object BackupManager {
             }
         }
 
+        // Restore Businesses (optional for backwards compatibility with older JSON backups)
+        if (rootJson.has("businesses")) {
+            val arr = rootJson.getJSONArray("businesses")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                db.businessDao().insertBusiness(
+                    BusinessEntity(
+                        id = obj.optLong("id", 0L),
+                        name = obj.optString("name", "Negocio"),
+                        type = obj.optString("type", "Comercio / Ventas"),
+                        description = obj.optString("description", ""),
+                        colorHex = obj.optString("colorHex", "#2563EB"),
+                        iconKey = obj.optString("iconKey", "storefront"),
+                        inventoryValue = obj.optDouble("inventoryValue", 0.0),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                )
+                restoredCount += 1
+            }
+        }
+
+        restoredCount
+        }
+        // Update the timestamp only after the whole restore transaction succeeds.
         setLastBackupTimestamp(context, System.currentTimeMillis())
         return restoredCount
     }
