@@ -1,0 +1,74 @@
+package com.example.data.repository
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.local.AppDatabase
+import com.example.data.local.entity.RecurringExpenseEntity
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
+class RecurringExpenseRepositoryImplTest {
+
+    private lateinit var database: AppDatabase
+    private lateinit var repository: RecurringExpenseRepositoryImpl
+
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        repository = RecurringExpenseRepositoryImpl(
+            database = database,
+            recurringExpenseDao = database.recurringExpenseDao(),
+            categoryDao = database.categoryDao(),
+            accountDao = database.accountDao(),
+            transactionDao = database.transactionDao()
+        )
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun executingSameRecurringExpenseTwiceInOneMonthCreatesOnlyOneTransaction() = runBlocking {
+        val expenseId = database.recurringExpenseDao().insertRecurringExpense(
+            RecurringExpenseEntity(
+                title = "Internet",
+                amount = 2200.0,
+                categoryId = 7L,
+                accountId = 1L,
+                dayOfMonth = 15,
+                isEnabled = true
+            )
+        )
+
+        assertTrue(repository.executeSingleRecurringExpenseNow(expenseId))
+        assertFalse(repository.executeSingleRecurringExpenseNow(expenseId))
+
+        database.openHelper.readableDatabase.query(
+            "SELECT COUNT(*) FROM transactions"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+
+        val savedExpense = database.recurringExpenseDao().getRecurringExpenseById(expenseId)
+        val expectedMonth = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
+            .format(java.util.Date())
+        assertEquals(expectedMonth, savedExpense?.lastExecutedMonth)
+    }
+}
