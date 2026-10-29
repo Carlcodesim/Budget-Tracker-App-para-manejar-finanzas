@@ -1,5 +1,7 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
+import com.example.data.local.AppDatabase
 import com.example.data.local.dao.AccountDao
 import com.example.data.local.dao.CategoryDao
 import com.example.data.local.dao.RecurringExpenseDao
@@ -25,6 +27,7 @@ import java.util.Locale
  * Maneja la persistencia y la generación automática de transacciones programadas mensuales.
  */
 class RecurringExpenseRepositoryImpl(
+    private val database: AppDatabase,
     private val recurringExpenseDao: RecurringExpenseDao,
     private val categoryDao: CategoryDao,
     private val accountDao: AccountDao,
@@ -138,8 +141,9 @@ class RecurringExpenseRepositoryImpl(
                     tags = "RECURRING,AUTO_GENERATED"
                 )
 
-                val newId = transactionDao.insertTransaction(transactionEntity)
-                recurringExpenseDao.updateLastExecutedMonth(expense.id, yearMonthKey)
+                // Insertar la transacción y marcar el mes en una única operación atómica.
+                val newId = insertRecurringTransactionOnce(expense.id, yearMonthKey, transactionEntity)
+                    ?: continue
 
                 val catDomain = categories[expense.categoryId]?.toDomain() ?: Category(
                     id = expense.categoryId,
@@ -178,9 +182,6 @@ class RecurringExpenseRepositoryImpl(
         val currentMonth = nowCal.get(Calendar.MONTH) + 1
         val yearMonthKey = String.format(Locale.US, "%04d-%02d", currentYear, currentMonth)
 
-        // Una recurrencia solo puede generar un pago por mes; evita duplicados al tocar ejecutar varias veces.
-        if (expense.lastExecutedMonth == yearMonthKey) return false
-
         val descriptionText = buildString {
             append("[Gasto Recurrente] ")
             append(expense.title)
@@ -200,8 +201,24 @@ class RecurringExpenseRepositoryImpl(
             tags = "RECURRING,MANUAL_TRIGGER"
         )
 
-        transactionDao.insertTransaction(transactionEntity)
-        recurringExpenseDao.updateLastExecutedMonth(expense.id, yearMonthKey)
-        return true
+        // Releer el estado y escribir ambos cambios dentro de la misma transacción SQL.
+        return insertRecurringTransactionOnce(expense.id, yearMonthKey, transactionEntity) != null
+    }
+
+    private suspend fun insertRecurringTransactionOnce(
+        expenseId: Long,
+        yearMonth: String,
+        transaction: TransactionEntity
+    ): Long? = database.withTransaction {
+        val currentExpense = recurringExpenseDao.getRecurringExpenseById(expenseId)
+            ?: return@withTransaction null
+
+        if (!currentExpense.isEnabled || currentExpense.lastExecutedMonth == yearMonth) {
+            return@withTransaction null
+        }
+
+        val transactionId = transactionDao.insertTransaction(transaction)
+        recurringExpenseDao.updateLastExecutedMonth(expenseId, yearMonth)
+        transactionId
     }
 }
