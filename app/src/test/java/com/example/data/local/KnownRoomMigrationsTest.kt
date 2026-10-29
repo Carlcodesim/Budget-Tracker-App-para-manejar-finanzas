@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -123,7 +123,15 @@ class KnownRoomMigrationsTest {
                     assertEquals("INSERC Store", cursor.getString(0))
                 }
 
-                assertNotNull(db.query("PRAGMA index_list('transactions')"))
+                val transactionIndexes = mutableSetOf<String>()
+                db.query("PRAGMA index_list('transactions')").use { cursor ->
+                    val nameColumn = cursor.getColumnIndexOrThrow("name")
+                    while (cursor.moveToNext()) {
+                        transactionIndexes += cursor.getString(nameColumn)
+                    }
+                }
+                assertTrue(transactionIndexes.contains("index_transactions_type_date"))
+                assertTrue(transactionIndexes.contains("index_transactions_accountId_date"))
                 assertEquals(12, db.version)
             } finally {
                 migrated.close()
