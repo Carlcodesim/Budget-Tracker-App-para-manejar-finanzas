@@ -28,6 +28,6 @@ data class RecurringExpenseEntity(
     val tags: String? = null,
     val isEnabled: Boolean = true,
     val lastExecutedMonth: String? = null, // Formato "yyyy-MM" para evitar cobros duplicados en el mismo mes
-    val autoCreate: Boolean = true, // Si es true, el sistema crea la transacción automáticamente en la fecha
+    val autoCreate: Boolean = false, // La creación automática requiere activación explícita
     val createdAt: Long = System.currentTimeMillis()
 )
