@@ -63,7 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -402,7 +402,7 @@ fun RecurringExpenseItemCard(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Importe planificado: RD${String.format(Locale.US, "%,.2f", expense.amount)}. " +
+                        text = "Importe planificado: RD\\${String.format(Locale.US, "%,.2f", expense.amount)}. " +
                             "Indica cuánto pagaste realmente. Ese será el monto que se agregará a tus movimientos."
                     )
                     OutlinedTextField(
