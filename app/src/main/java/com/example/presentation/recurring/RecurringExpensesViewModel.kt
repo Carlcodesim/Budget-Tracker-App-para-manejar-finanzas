@@ -248,7 +248,12 @@ class RecurringExpensesViewModel(
                 val account = uiState.value.accounts.firstOrNull { it.id == accountId }
                     ?: throw IllegalArgumentException("Selecciona una cuenta válida.")
 
-                val existingExpense = uiState.value.recurringExpenses.firstOrNull { it.id == editingId }
+                val existingExpense = if (editingId > 0) {
+                    uiState.value.recurringExpenses.firstOrNull { it.id == editingId }
+                        ?: throw IllegalStateException("No se encontró el gasto recurrente que intentas editar.")
+                } else {
+                    null
+                }
                 val recurring = if (existingExpense != null) {
                     // Al editar, preservar el estado de pago y la configuración que no cambió el usuario.
                     existingExpense.copy(
