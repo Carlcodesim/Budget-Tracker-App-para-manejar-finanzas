@@ -56,14 +56,22 @@ class RecurringExpenseRepositoryImplTest {
             )
         )
 
-        assertTrue(repository.executeSingleRecurringExpenseNow(expenseId))
-        assertFalse(repository.executeSingleRecurringExpenseNow(expenseId))
+        // El plan es RD$2,200, pero el usuario confirma que pagó RD$1,750.
+        assertTrue(repository.executeSingleRecurringExpenseNow(expenseId, 1750.0))
+        assertFalse(repository.executeSingleRecurringExpenseNow(expenseId, 2200.0))
 
         database.openHelper.readableDatabase.query(
             "SELECT COUNT(*) FROM transactions"
         ).use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals(1, cursor.getInt(0))
+        }
+
+        database.openHelper.readableDatabase.query(
+            "SELECT amount FROM transactions LIMIT 1"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1750.0, cursor.getDouble(0), 0.0)
         }
 
         val savedExpense = database.recurringExpenseDao().getRecurringExpenseById(expenseId)
