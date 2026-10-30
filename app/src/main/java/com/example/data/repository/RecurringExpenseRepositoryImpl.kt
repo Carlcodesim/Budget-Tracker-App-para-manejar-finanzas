@@ -18,7 +18,6 @@ import com.example.domain.model.TransactionType
 import com.example.domain.repository.RecurringExpenseRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.mapLatest
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -42,7 +41,8 @@ class RecurringExpenseRepositoryImpl(
             accountDao.getAllAccounts()
         ) { expenses, categories, accounts ->
             Triple(expenses, categories.associateBy { it.id }, accounts.associateBy { it.id })
-        }.mapLatest { (expenses, categoryMap, accountMap) ->
+        }.combine(transactionDao.getRecurringExpenseTransactions()) { source, recurringTransactions ->
+            val (expenses, categoryMap, accountMap) = source
             expenses.map { entity ->
                 val categoryDomain = categoryMap[entity.categoryId]?.toDomain() ?: Category(
                     id = entity.categoryId,
@@ -51,10 +51,9 @@ class RecurringExpenseRepositoryImpl(
                     isDefault = true
                 )
                 val accountDomain = accountMap[entity.accountId]?.toDomain()
-                val lastExecutedAmount = transactionDao
-                    .getTransactionsByCorrelationTag(recurringTransactionTag(entity.id))
-                    .maxByOrNull { it.date }
-                    ?.amount
+                val lastExecutedAmount = recurringTransactions.firstOrNull {
+                    it.tags?.contains(recurringTransactionTag(entity.id)) == true
+                }?.amount
 
                 entity.toDomain(categoryDomain, accountDomain).copy(
                     lastExecutedAmount = lastExecutedAmount
