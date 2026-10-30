@@ -138,7 +138,7 @@ fun RecurringExpensesScreen(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Sync,
-                                contentDescription = "Verificar y procesar cobros",
+                                contentDescription = "Verificar gastos con automatización activada",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -191,7 +191,7 @@ fun RecurringExpensesScreen(
                     )
                 }
 
-                // Calendario de Distribución de Cobros en el Mes
+                // Calendario de pagos recurrentes del mes
                 if (uiState.recurringExpenses.isNotEmpty()) {
                     item {
                         MonthlyScheduleStrip(
@@ -378,7 +378,7 @@ private fun RecurringSummaryHeroCard(
                 }
             }
 
-            // Barra de Progreso del Mes: Pagado vs Total
+            // Barra de progreso de pagos registrados frente al total programado
             val progress = if (totalCommitted > 0) (totalPaid / totalCommitted).toFloat().coerceIn(0f, 1f) else 0f
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
@@ -409,7 +409,7 @@ private fun RecurringSummaryHeroCard(
                 )
             }
 
-            // Fila de Métricas: Cobrado vs Pendiente
+            // Fila de métricas: registrado vs por registrar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -553,7 +553,7 @@ private fun MonthlyScheduleStrip(
                 )
             }
 
-            // Tira horizontal de días con cobros
+            // Tira horizontal de fechas de pago
             val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
             val activeExpensesByDay = expenses
                 .filter { it.isEnabled }
@@ -660,8 +660,8 @@ private fun EmptyRecurringState(
                 text = when (filter) {
                     RecurringFilter.ALL -> "No tienes gastos recurrentes programados"
                     RecurringFilter.PENDING_THIS_MONTH -> "No hay gastos pendientes este mes"
-                    RecurringFilter.EXECUTED_THIS_MONTH -> "Aún no se han cobrado gastos este mes"
-                    RecurringFilter.PAUSED -> "No tienes suscripciones o cobros pausados"
+                    RecurringFilter.EXECUTED_THIS_MONTH -> "Aún no has registrado pagos este mes"
+                    RecurringFilter.PAUSED -> "No tienes pagos recurrentes pausados"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
