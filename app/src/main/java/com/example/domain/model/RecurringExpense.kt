@@ -11,7 +11,7 @@ data class RecurringExpense(
     val amount: Double,
     val category: Category,
     val account: Account? = null,
-    val accountId: Long = 1L,
+    val accountId: Long = 0L,
     val dayOfMonth: Int, // Día del mes (1..31)
     val description: String? = null,
     val tags: String? = null,
