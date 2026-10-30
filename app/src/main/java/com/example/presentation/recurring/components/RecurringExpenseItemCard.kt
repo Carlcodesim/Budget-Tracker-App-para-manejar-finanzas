@@ -194,6 +194,11 @@ fun RecurringExpenseItemCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text(
+                        text = if (expense.autoCreate) "Automático" else "Registro manual",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (expense.autoCreate) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // Botón menú
@@ -221,9 +226,9 @@ fun RecurringExpenseItemCard(
                                 onEdit()
                             }
                         )
-                        if (expense.isEnabled) {
+                        if (expense.isEnabled && !isExecutedThisMonth) {
                             DropdownMenuItem(
-                                text = { Text("Generar transacción ahora") },
+                                text = { Text("Registrar pago realizado") },
                                 leadingIcon = { Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                 onClick = {
                                     menuExpanded = false
@@ -303,7 +308,7 @@ fun RecurringExpenseItemCard(
                     } else if (isExecutedThisMonth) {
                         StatusChip(
                             icon = Icons.Default.CheckCircle,
-                            text = "Cobrado este mes",
+                            text = "Registrado este mes",
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -356,7 +361,7 @@ fun RecurringExpenseItemCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Cobrar",
+                                text = "Registrar pago",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
                             )
