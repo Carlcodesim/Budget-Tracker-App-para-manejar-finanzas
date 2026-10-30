@@ -187,17 +187,17 @@ class RecurringExpensesViewModel(
         }
     }
 
-    fun executeSingleExpenseNow(expense: RecurringExpense) {
+    fun executeSingleExpenseNow(expense: RecurringExpense, paidAmount: Double) {
         viewModelScope.launch {
             try {
-                val success = processRecurringExpensesUseCase.executeNow(expense.id)
+                val success = processRecurringExpensesUseCase.executeNow(expense.id, paidAmount)
                 if (success) {
-                    _snackbarMessage.value = "✅ Transacción generada con éxito para '${expense.title}' por $${String.format(Locale.US, "%,.2f", expense.amount)}."
+                    _snackbarMessage.value = "✅ Pago de '${expense.title}' registrado por ${String.format(Locale.US, "%,.2f", paidAmount)}."
                 } else {
-                    _snackbarMessage.value = "No se pudo generar la transacción."
+                    _snackbarMessage.value = "No se pudo registrar el pago. Verifica si ya fue registrado este mes."
                 }
             } catch (e: Exception) {
-                _snackbarMessage.value = "Error al generar transacción: ${e.message}"
+                _snackbarMessage.value = "Error al registrar el pago: ${e.message}"
             }
         }
     }
