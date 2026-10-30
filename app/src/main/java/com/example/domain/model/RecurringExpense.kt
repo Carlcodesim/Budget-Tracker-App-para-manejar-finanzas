@@ -40,8 +40,24 @@ data class RecurringExpense(
     /**
      * Verifica si el gasto está pendiente de ejecución automática para el día actual y mes dado.
      */
-    fun isDueForExecution(currentDay: Int, currentYearMonth: String): Boolean {
-        return isEnabled && autoCreate && !isExecutedInMonth(currentYearMonth) && currentDay >= dayOfMonth
+    fun effectiveDayInMonth(daysInMonth: Int): Int {
+        require(daysInMonth in 1..31) { "Los días del mes deben estar entre 1 y 31." }
+        return dayOfMonth.coerceIn(1, daysInMonth)
+    }
+
+    /**
+     * Verifica si el gasto ya llegó a su fecha efectiva de ejecución en el mes actual.
+     * Los días 29, 30 o 31 se ajustan al último día cuando el mes es más corto.
+     */
+    fun isDueForExecution(
+        currentDay: Int,
+        currentYearMonth: String,
+        daysInMonth: Int = 31
+    ): Boolean {
+        return isEnabled &&
+            autoCreate &&
+            !isExecutedInMonth(currentYearMonth) &&
+            currentDay >= effectiveDayInMonth(daysInMonth)
     }
 }
 
