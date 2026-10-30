@@ -62,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.RecurringExpense
+import java.util.Calendar
 import java.util.Locale
 
 @Composable
@@ -77,7 +78,9 @@ fun RecurringExpenseItemCard(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val isExecutedThisMonth = expense.isExecutedInMonth(currentYearMonth)
-    val daysUntilDue = expense.dayOfMonth - currentDay
+    val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
+    val effectiveDueDay = expense.effectiveDayInMonth(daysInCurrentMonth)
+    val daysUntilDue = effectiveDueDay - currentDay
 
     Card(
         modifier = modifier
@@ -289,7 +292,7 @@ fun RecurringExpenseItemCard(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Día ${expense.dayOfMonth}",
+                                text = if (effectiveDueDay == expense.dayOfMonth) "Día $effectiveDueDay" else "Día $effectiveDueDay (fin de mes)",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
