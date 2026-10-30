@@ -45,6 +45,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE tags LIKE '%' || :correlationId || '%'")
     suspend fun getTransactionsByCorrelationTag(correlationId: String): List<TransactionEntity>
 
+    @Query("SELECT * FROM transactions WHERE tags LIKE '%RECURRING_EXPENSE_ID=%' ORDER BY date DESC")
+    fun getRecurringExpenseTransactions(): Flow<List<TransactionEntity>>
+
     @Query("DELETE FROM transactions WHERE tags LIKE '%' || :correlationId || '%'")
     suspend fun deleteTransactionsByCorrelationTag(correlationId: String): Int
 
