@@ -175,7 +175,10 @@ class RecurringExpenseRepositoryImpl(
         )
     }
 
-    override suspend fun executeSingleRecurringExpenseNow(id: Long): Boolean {
+    override suspend fun executeSingleRecurringExpenseNow(id: Long, paidAmount: Double): Boolean {
+        require(paidAmount > 0.0 && paidAmount.isFinite()) {
+            "El importe pagado debe ser un número válido mayor que cero."
+        }
         val expense = recurringExpenseDao.getRecurringExpenseById(id) ?: return false
         val nowCal = Calendar.getInstance()
         val currentYear = nowCal.get(Calendar.YEAR)
@@ -192,7 +195,7 @@ class RecurringExpenseRepositoryImpl(
         }
 
         val transactionEntity = TransactionEntity(
-            amount = expense.amount,
+            amount = paidAmount,
             type = "EXPENSE",
             categoryId = expense.categoryId,
             accountId = expense.accountId,
