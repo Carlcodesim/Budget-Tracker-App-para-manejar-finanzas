@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -117,12 +118,44 @@ fun RecurringExpenseFormSheet(
         mutableFloatStateOf((initialExpense?.dayOfMonth ?: 1).toFloat())
     }
     var description by remember { mutableStateOf(initialExpense?.description ?: "") }
-    var autoCreate by remember { mutableStateOf(initialExpense?.autoCreate ?: true) }
+    var autoCreate by remember { mutableStateOf(initialExpense?.autoCreate ?: false) }
+    var showAutoCreateConfirmation by remember { mutableStateOf(false) }
 
     var titleError by remember { mutableStateOf(false) }
     var amountError by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val submitForm: (Boolean) -> Unit = { automaticCreationConfirmed ->
+        val parsedAmount = amountText.toDoubleOrNull()
+        var hasError = false
+
+        if (title.isBlank()) {
+            titleError = true
+            hasError = true
+        }
+        if (parsedAmount == null || parsedAmount <= 0) {
+            amountError = true
+            hasError = true
+        }
+
+        if (!hasError && parsedAmount != null) {
+            val isEnablingAutomaticCreation = autoCreate && initialExpense?.autoCreate != true
+            if (isEnablingAutomaticCreation && !automaticCreationConfirmed) {
+                showAutoCreateConfirmation = true
+            } else {
+                onSave(
+                    title.trim(),
+                    parsedAmount,
+                    selectedCategoryId,
+                    selectedAccountId,
+                    dayOfMonthSlider.roundToInt(),
+                    description.takeIf { it.isNotBlank() },
+                    autoCreate
+                )
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -156,7 +189,7 @@ fun RecurringExpenseFormSheet(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Se programará automáticamente cada mes",
+                            text = "Define la fecha y si deseas automatizar su registro.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -315,7 +348,7 @@ fun RecurringExpenseFormSheet(
                         )
 
                         Text(
-                            text = "Se registrará automáticamente cada día ${dayOfMonthSlider.roundToInt()} del mes.",
+                            text = "Fecha programada: día ${dayOfMonthSlider.roundToInt()} de cada mes.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -408,7 +441,7 @@ fun RecurringExpenseFormSheet(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Al llegar la fecha cada mes, se inserta en el historial de gastos sin requerir acción manual.",
+                                text = "En la fecha indicada, se añadirá un gasto al historial sin verificar si el pago realmente se realizó.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -439,31 +472,7 @@ fun RecurringExpenseFormSheet(
                     }
 
                     Button(
-                        onClick = {
-                            val parsedAmount = amountText.toDoubleOrNull()
-                            var hasError = false
-
-                            if (title.isBlank()) {
-                                titleError = true
-                                hasError = true
-                            }
-                            if (parsedAmount == null || parsedAmount <= 0) {
-                                amountError = true
-                                hasError = true
-                            }
-
-                            if (!hasError && parsedAmount != null) {
-                                onSave(
-                                    title.trim(),
-                                    parsedAmount,
-                                    selectedCategoryId,
-                                    selectedAccountId,
-                                    dayOfMonthSlider.roundToInt(),
-                                    description.takeIf { it.isNotBlank() },
-                                    autoCreate
-                                )
-                            }
-                        },
+                        onClick = { submitForm(false) },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("btn_save_recurring")
@@ -476,4 +485,35 @@ fun RecurringExpenseFormSheet(
             }
         }
     }
+
+    if (showAutoCreateConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showAutoCreateConfirmation = false },
+            title = { Text("Confirmar generación automática") },
+            text = {
+                Text(
+                    "La aplicación registrará automáticamente un gasto de RD$${amountText} " +
+                        "el día ${dayOfMonthSlider.roundToInt()} de cada mes, sin comprobar si el banco " +
+                        "o proveedor realizó el cobro. Esto modificará tu historial y tus balances. " +
+                        "Confirma solo si deseas que ese registro se cree automáticamente."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAutoCreateConfirmation = false
+                        submitForm(true)
+                    }
+                ) {
+                    Text("Confirmar y guardar")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAutoCreateConfirmation = false }) {
+                    Text("Volver al formulario")
+                }
+            }
+        )
+    }
+
 }
