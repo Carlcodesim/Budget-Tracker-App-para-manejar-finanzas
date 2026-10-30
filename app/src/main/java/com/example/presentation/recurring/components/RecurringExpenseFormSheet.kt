@@ -1,6 +1,5 @@
 package com.example.presentation.recurring.components
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AttachMoney
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
@@ -65,14 +63,6 @@ import com.example.domain.model.Category
 import com.example.domain.model.RecurringExpense
 import kotlin.math.roundToInt
 
-data class RecurringPreset(
-    val title: String,
-    val amount: Double,
-    val categoryId: Long,
-    val dayOfMonth: Int,
-    val description: String
-)
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecurringExpenseFormSheet(
@@ -91,38 +81,31 @@ fun RecurringExpenseFormSheet(
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val presets = remember {
-        listOf(
-            RecurringPreset("Netflix", 599.0, 4, 15, "Suscripción entretenimiento"),
-            RecurringPreset("Spotify", 299.0, 4, 10, "Música premium"),
-            RecurringPreset("Internet Fibra", 2200.0, 7, 20, "Conexión hogar 300 Mbps"),
-            RecurringPreset("Alquiler", 15000.0, 7, 1, "Renta mensual de vivienda"),
-            RecurringPreset("Gimnasio", 1500.0, 5, 5, "Membresía mensual"),
-            RecurringPreset("Electricidad", 1800.0, 7, 18, "Consumo eléctrico"),
-            RecurringPreset("Plan Celular", 799.0, 7, 25, "Línea móvil y datos"),
-            RecurringPreset("Seguro Médico", 3500.0, 5, 28, "Póliza complementaria")
-        )
+    val expenseCategories = remember(categories) {
+        categories.filter { it.type.equals("EXPENSE", ignoreCase = true) || it.type.equals("ALL", ignoreCase = true) }
     }
 
-    var title by remember { mutableStateOf(initialExpense?.title ?: "") }
-    var amountText by remember {
-        mutableStateOf(if (initialExpense != null) initialExpense.amount.toString() else "")
+    var title by remember(initialExpense?.id) { mutableStateOf(initialExpense?.title ?: "") }
+    var amountText by remember(initialExpense?.id) {
+        mutableStateOf(initialExpense?.amount?.toString() ?: "")
     }
-    var selectedCategoryId by remember {
-        mutableLongStateOf(initialExpense?.category?.id ?: categories.firstOrNull()?.id ?: 1L)
+    var selectedCategoryId by remember(initialExpense?.id) {
+        mutableLongStateOf(initialExpense?.category?.id ?: 0L)
     }
-    var selectedAccountId by remember {
-        mutableLongStateOf(initialExpense?.accountId ?: accounts.firstOrNull()?.id ?: 1L)
+    var selectedAccountId by remember(initialExpense?.id) {
+        mutableLongStateOf(initialExpense?.accountId ?: 0L)
     }
-    var dayOfMonthSlider by remember {
+    var dayOfMonthSlider by remember(initialExpense?.id) {
         mutableFloatStateOf((initialExpense?.dayOfMonth ?: 1).toFloat())
     }
-    var description by remember { mutableStateOf(initialExpense?.description ?: "") }
-    var autoCreate by remember { mutableStateOf(initialExpense?.autoCreate ?: false) }
+    var description by remember(initialExpense?.id) { mutableStateOf(initialExpense?.description ?: "") }
+    var autoCreate by remember(initialExpense?.id) { mutableStateOf(initialExpense?.autoCreate ?: false) }
     var showAutoCreateConfirmation by remember { mutableStateOf(false) }
 
     var titleError by remember { mutableStateOf(false) }
     var amountError by remember { mutableStateOf(false) }
+    var categoryError by remember { mutableStateOf(false) }
+    var accountError by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -136,6 +119,14 @@ fun RecurringExpenseFormSheet(
         }
         if (parsedAmount == null || parsedAmount <= 0) {
             amountError = true
+            hasError = true
+        }
+        if (expenseCategories.none { it.id == selectedCategoryId }) {
+            categoryError = true
+            hasError = true
+        }
+        if (accounts.none { it.id == selectedAccountId }) {
+            accountError = true
             hasError = true
         }
 
@@ -189,7 +180,7 @@ fun RecurringExpenseFormSheet(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Define la fecha y si deseas automatizar su registro.",
+                            text = "Configura tu gasto periódico; tú decides cuándo registrar cada pago.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -197,53 +188,6 @@ fun RecurringExpenseFormSheet(
 
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Cerrar")
-                    }
-                }
-
-                // Plantillas Rápidas (Presets) si es nuevo
-                if (!isEditing) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Sugerencias frecuentes",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            presets.forEach { preset ->
-                                FilterChip(
-                                    selected = title == preset.title,
-                                    onClick = {
-                                        title = preset.title
-                                        amountText = preset.amount.toString()
-                                        selectedCategoryId = preset.categoryId
-                                        dayOfMonthSlider = preset.dayOfMonth.toFloat()
-                                        description = preset.description
-                                    },
-                                    label = { Text(preset.title) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                )
-                            }
-                        }
                     }
                 }
 
@@ -255,7 +199,7 @@ fun RecurringExpenseFormSheet(
                         titleError = false
                     },
                     label = { Text("Nombre del gasto o suscripción") },
-                    placeholder = { Text("Ej: Netflix, Gimnasio, Alquiler") },
+                    placeholder = { Text("Nombre del servicio o compromiso") },
                     leadingIcon = { Icon(Icons.Default.Title, contentDescription = null) },
                     isError = titleError,
                     supportingText = if (titleError) {
@@ -317,7 +261,7 @@ fun RecurringExpenseFormSheet(
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Text(
-                                    text = "Día de cobro mensual",
+                                    text = "Día de vencimiento o pago",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -355,28 +299,46 @@ fun RecurringExpenseFormSheet(
                     }
                 }
 
-                // Selector de Categoría
+                // Solo se permiten categorías de gasto en este formulario.
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "Categoría",
+                        text = "Categoría del gasto",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        categories.forEach { category ->
-                            FilterChip(
-                                selected = selectedCategoryId == category.id,
-                                onClick = { selectedCategoryId = category.id },
-                                label = { Text(category.name) },
-                                leadingIcon = if (selectedCategoryId == category.id) {
-                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                } else null
-                            )
+                    if (expenseCategories.isEmpty()) {
+                        Text(
+                            text = "No hay categorías de gastos disponibles. Crea una categoría de gasto antes de continuar.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            expenseCategories.forEach { category ->
+                                FilterChip(
+                                    selected = selectedCategoryId == category.id,
+                                    onClick = {
+                                        selectedCategoryId = category.id
+                                        categoryError = false
+                                    },
+                                    label = { Text(category.name) },
+                                    leadingIcon = if (selectedCategoryId == category.id) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    } else null
+                                )
+                            }
                         }
+                    }
+                    if (categoryError) {
+                        Text(
+                            text = "Selecciona una categoría de gasto.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
 
@@ -407,6 +369,19 @@ fun RecurringExpenseFormSheet(
                             }
                         }
                     }
+                    if (accountError) {
+                        Text(
+                            text = "Selecciona una cuenta válida.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "No hay cuentas configuradas. Crea una cuenta antes de registrar este gasto.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
 
                 // Campo: Descripción
@@ -414,7 +389,7 @@ fun RecurringExpenseFormSheet(
                     value = description,
                     onValueChange = { description = it },
                     label = { Text("Nota o descripción (opcional)") },
-                    placeholder = { Text("Ej: Tarjeta terminación 4421, plan dúo") },
+                    placeholder = { Text("Detalles que quieras recordar (opcional)") },
                     leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
                     maxLines = 3,
                     modifier = Modifier.fillMaxWidth()
