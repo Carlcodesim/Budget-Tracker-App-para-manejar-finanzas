@@ -402,7 +402,7 @@ fun RecurringExpenseItemCard(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Importe planificado: RD\${String.format(Locale.US, "%,.2f", expense.amount)}. " +
+                        text = "Importe planificado: RD$" + String.format(Locale.US, "%,.2f", expense.amount) + ". " +
                             "Indica cuánto pagaste realmente. Ese será el monto que se agregará a tus movimientos."
                     )
                     OutlinedTextField(
