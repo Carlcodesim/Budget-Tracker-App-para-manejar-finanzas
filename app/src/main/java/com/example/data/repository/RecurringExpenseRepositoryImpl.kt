@@ -106,7 +106,7 @@ class RecurringExpenseRepositoryImpl(
             if (expense.lastExecutedMonth == yearMonthKey) continue
 
             val maxDayInMonth = nowCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            val targetDay = expense.effectiveDayInMonth(maxDayInMonth)
+            val targetDay = expense.dayOfMonth.coerceIn(1, maxDayInMonth)
             val isDue = expense.autoCreate && (forceAllDue || currentDay >= targetDay)
 
             if (isDue) {
