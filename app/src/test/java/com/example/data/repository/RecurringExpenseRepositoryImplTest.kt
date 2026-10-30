@@ -71,4 +71,32 @@ class RecurringExpenseRepositoryImplTest {
             .format(java.util.Date())
         assertEquals(expectedMonth, savedExpense?.lastExecutedMonth)
     }
+
+
+    @Test
+    fun forceAllDueDoesNotCreateTransactionWhenAutoCreationIsDisabled() = runBlocking {
+        database.recurringExpenseDao().insertRecurringExpense(
+            RecurringExpenseEntity(
+                title = "Internet manual",
+                amount = 2200.0,
+                categoryId = 7L,
+                accountId = 1L,
+                dayOfMonth = 1,
+                isEnabled = true,
+                autoCreate = false
+            )
+        )
+
+        val result = repository.processRecurringExpenses(forceAllDue = true)
+
+        assertEquals(0, result.executedCount)
+        assertEquals(0.0, result.totalAmount, 0.0)
+        database.openHelper.readableDatabase.query(
+            "SELECT COUNT(*) FROM transactions"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+    }
+
 }
