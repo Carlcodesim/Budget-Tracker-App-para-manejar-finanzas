@@ -1,6 +1,7 @@
 package com.example.domain.model
 
 import com.example.data.local.entity.RecurringExpenseEntity
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
@@ -16,6 +17,7 @@ class RecurringExpenseDefaultsTest {
         )
 
         assertFalse(expense.autoCreate)
+        assertEquals(0L, expense.accountId)
     }
 
     @Test
@@ -28,5 +30,6 @@ class RecurringExpenseDefaultsTest {
         )
 
         assertFalse(expense.autoCreate)
+        assertEquals(0L, expense.accountId)
     }
 }
