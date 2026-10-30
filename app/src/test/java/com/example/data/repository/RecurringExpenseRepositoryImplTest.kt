@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.RecurringExpenseEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -73,6 +74,14 @@ class RecurringExpenseRepositoryImplTest {
             assertTrue(cursor.moveToFirst())
             assertEquals(1750.0, cursor.getDouble(0), 0.0)
         }
+
+        val linkedTransactions = database.transactionDao()
+            .getTransactionsByCorrelationTag("RECURRING_EXPENSE_ID=$expenseId;")
+        assertEquals(1, linkedTransactions.size)
+        assertEquals(1750.0, linkedTransactions.single().amount, 0.0)
+
+        val displayedExpense = repository.getAllRecurringExpenses().first().single()
+        assertEquals(1750.0, displayedExpense.lastExecutedAmount!!, 0.0)
 
         val savedExpense = database.recurringExpenseDao().getRecurringExpenseById(expenseId)
         val expectedMonth = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
