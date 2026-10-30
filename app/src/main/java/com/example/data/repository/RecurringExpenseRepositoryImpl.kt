@@ -105,7 +105,7 @@ class RecurringExpenseRepositoryImpl(
             if (!expense.isEnabled) continue
             if (expense.lastExecutedMonth == yearMonthKey) continue
 
-            val isDue = forceAllDue || (expense.autoCreate && currentDay >= expense.dayOfMonth)
+            val isDue = expense.autoCreate && (forceAllDue || currentDay >= expense.dayOfMonth)
 
             if (isDue) {
                 // Calcular fecha programada
