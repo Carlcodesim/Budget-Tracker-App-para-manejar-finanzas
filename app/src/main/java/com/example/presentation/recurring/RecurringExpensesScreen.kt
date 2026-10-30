@@ -107,7 +107,7 @@ fun RecurringExpensesScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Cobros y suscripciones automáticas",
+                            text = "Pagos periódicos y gastos programados",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -185,6 +185,7 @@ fun RecurringExpensesScreen(
                         pendingCount = uiState.pendingCountThisMonth,
                         nextDueDays = uiState.daysUntilNextDue,
                         nextDueTitle = uiState.nextDueExpense?.title,
+                        nextDueAutoCreate = uiState.nextDueExpense?.autoCreate == true,
                         onProcessAllClick = { viewModel.syncAndProcessNow(forceAllDue = true) }
                     )
                 }
@@ -229,7 +230,7 @@ fun RecurringExpensesScreen(
                         FilterChip(
                             selected = uiState.selectedFilter == RecurringFilter.EXECUTED_THIS_MONTH,
                             onClick = { viewModel.setFilter(RecurringFilter.EXECUTED_THIS_MONTH) },
-                            label = { Text("Cobrados (${uiState.executedCountThisMonth})") },
+                            label = { Text("Registrados (${uiState.executedCountThisMonth})") },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.CheckCircle,
@@ -320,6 +321,7 @@ private fun RecurringSummaryHeroCard(
     pendingCount: Int,
     nextDueDays: Int?,
     nextDueTitle: String?,
+    nextDueAutoCreate: Boolean,
     onProcessAllClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -388,7 +390,7 @@ private fun RecurringSummaryHeroCard(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "$paidCount de ${paidCount + pendingCount} cobros",
+                        text = "$paidCount de ${paidCount + pendingCount} pagos del mes",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -418,7 +420,7 @@ private fun RecurringSummaryHeroCard(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "Cobrado este mes",
+                            text = "Registrado este mes",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -438,7 +440,7 @@ private fun RecurringSummaryHeroCard(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "Pendiente este mes",
+                            text = "Por registrar este mes",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -474,14 +476,21 @@ private fun RecurringSummaryHeroCard(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Próximo cobro: $nextDueTitle",
+                                text = "Próximo vencimiento: $nextDueTitle",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = if (nextDueDays == 0) "¡Vence hoy! El sistema lo creará automáticamente."
-                                else if (nextDueDays > 0) "Faltan $nextDueDays días para su cobro."
-                                else "Pendiente de ejecución.",
+                                text = when {
+                                    nextDueDays == 0 && nextDueAutoCreate ->
+                                        "La generación automática está activada para hoy."
+                                    nextDueDays == 0 ->
+                                        "Fecha de pago hoy. Registra el movimiento cuando pagues."
+                                    nextDueAutoCreate ->
+                                        "Faltan $nextDueDays días para el registro automático."
+                                    else ->
+                                        "Faltan $nextDueDays días para su fecha de pago."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -656,7 +665,7 @@ private fun EmptyRecurringState(
             )
 
             Text(
-                text = "Programa suscripciones como Netflix, internet, servicios públicos o cuotas fijas para que se generen transacciones automáticamente en su fecha.",
+                text = "Agrega tus propios pagos periódicos. Define el importe, la categoría, la cuenta y la fecha; registra cada pago cuando realmente lo realices. La automatización es opcional.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
