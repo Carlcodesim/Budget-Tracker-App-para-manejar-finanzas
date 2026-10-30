@@ -105,12 +105,12 @@ class RecurringExpenseRepositoryImpl(
             if (!expense.isEnabled) continue
             if (expense.lastExecutedMonth == yearMonthKey) continue
 
-            val isDue = expense.autoCreate && (forceAllDue || currentDay >= expense.dayOfMonth)
+            val maxDayInMonth = nowCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val targetDay = expense.effectiveDayInMonth(maxDayInMonth)
+            val isDue = expense.autoCreate && (forceAllDue || currentDay >= targetDay)
 
             if (isDue) {
-                // Calcular fecha programada
-                val maxDayInMonth = nowCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                val targetDay = expense.dayOfMonth.coerceIn(1, maxDayInMonth)
+                // Calcular fecha programada usando el último día disponible en meses cortos.
 
                 val scheduledCal = Calendar.getInstance().apply {
                     set(Calendar.YEAR, currentYear)
