@@ -192,7 +192,7 @@ class RecurringExpensesViewModel(
             try {
                 val success = processRecurringExpensesUseCase.executeNow(expense.id, paidAmount)
                 if (success) {
-                    _snackbarMessage.value = "✅ Pago de '${expense.title}' registrado por RD\\${String.format(Locale.US, "%,.2f", paidAmount)}."
+                    _snackbarMessage.value = "✅ Pago de '${expense.title}' registrado por RD\${String.format(Locale.US, "%,.2f", paidAmount)}."
                 } else {
                     _snackbarMessage.value = "No se pudo registrar el pago. Verifica si ya fue registrado este mes."
                 }
