@@ -17,6 +17,7 @@ data class RecurringExpense(
     val tags: String? = null,
     val isEnabled: Boolean = true,
     val lastExecutedMonth: String? = null, // "yyyy-MM"
+    val lastExecutedAmount: Double? = null, // Importe real del último movimiento recurrente registrado
     val autoCreate: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
