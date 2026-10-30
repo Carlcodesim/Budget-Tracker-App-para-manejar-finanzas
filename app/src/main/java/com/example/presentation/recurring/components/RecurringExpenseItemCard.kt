@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallet
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,9 +45,11 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,6 +63,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.RecurringExpense
@@ -70,13 +76,16 @@ fun RecurringExpenseItemCard(
     expense: RecurringExpense,
     currentYearMonth: String,
     currentDay: Int,
-    onExecuteNow: () -> Unit,
+    onExecuteNow: (Double) -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var showPaymentDialog by remember(expense.id) { mutableStateOf(false) }
+    var paymentAmountText by remember(expense.id, expense.amount) { mutableStateOf(expense.amount.toString()) }
+    val paidAmount = paymentAmountText.replace(',', '.').toDoubleOrNull()
     val isExecutedThisMonth = expense.isExecutedInMonth(currentYearMonth)
     val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
     val effectiveDueDay = expense.effectiveDayInMonth(daysInCurrentMonth)
@@ -235,7 +244,7 @@ fun RecurringExpenseItemCard(
                                 leadingIcon = { Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                 onClick = {
                                     menuExpanded = false
-                                    onExecuteNow()
+                                    showPaymentDialog = true
                                 }
                             )
                         }
@@ -346,7 +355,7 @@ fun RecurringExpenseItemCard(
                 ) {
                     if (expense.isEnabled && !isExecutedThisMonth) {
                         FilledTonalButton(
-                            onClick = onExecuteNow,
+                            onClick = { showPaymentDialog = true },
                             modifier = Modifier
                                 .height(32.dp)
                                 .testTag("btn_execute_${expense.id}"),
@@ -383,6 +392,56 @@ fun RecurringExpenseItemCard(
                 }
             }
         }
+
+    }
+
+    if (showPaymentDialog) {
+        AlertDialog(
+            onDismissRequest = { showPaymentDialog = false },
+            title = { Text("Registrar pago realizado") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Importe planificado: RD${String.format(Locale.US, "%,.2f", expense.amount)}. " +
+                            "Indica cuánto pagaste realmente. Ese será el monto que se agregará a tus movimientos."
+                    )
+                    OutlinedTextField(
+                        value = paymentAmountText,
+                        onValueChange = { paymentAmountText = it },
+                        label = { Text("Importe realmente pagado") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        isError = paidAmount == null || paidAmount <= 0.0 || !paidAmount.isFinite(),
+                        modifier = Modifier.testTag("input_actual_recurring_payment")
+                    )
+                    if (paidAmount == null || paidAmount <= 0.0 || !paidAmount.isFinite()) {
+                        Text(
+                            text = "Introduce un importe válido mayor que cero.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        paidAmount?.takeIf { it > 0.0 && it.isFinite() }?.let { amount ->
+                            showPaymentDialog = false
+                            onExecuteNow(amount)
+                        }
+                    },
+                    enabled = paidAmount != null && paidAmount > 0.0 && paidAmount.isFinite()
+                ) {
+                    Text("Guardar pago")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPaymentDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
