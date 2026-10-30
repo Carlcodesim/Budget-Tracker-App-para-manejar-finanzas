@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.presentation.recurring.components.RecurringExpenseFormSheet
 import com.example.presentation.recurring.components.RecurringExpenseItemCard
+import java.util.Calendar
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -538,7 +539,7 @@ private fun MonthlyScheduleStrip(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Calendario de Cobros",
+                        text = "Calendario de pagos",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -553,7 +554,10 @@ private fun MonthlyScheduleStrip(
             }
 
             // Tira horizontal de días con cobros
-            val activeExpensesByDay = expenses.filter { it.isEnabled }.groupBy { it.dayOfMonth }
+            val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
+            val activeExpensesByDay = expenses
+                .filter { it.isEnabled }
+                .groupBy { it.effectiveDayInMonth(daysInCurrentMonth) }
             val sortedDays = activeExpensesByDay.keys.sorted()
 
             Row(
