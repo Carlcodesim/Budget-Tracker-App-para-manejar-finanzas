@@ -18,6 +18,7 @@ import com.example.domain.model.TransactionType
 import com.example.domain.repository.RecurringExpenseRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -40,9 +41,8 @@ class RecurringExpenseRepositoryImpl(
             categoryDao.getAllCategories(),
             accountDao.getAllAccounts()
         ) { expenses, categories, accounts ->
-            val categoryMap = categories.associateBy { it.id }
-            val accountMap = accounts.associateBy { it.id }
-
+            Triple(expenses, categories.associateBy { it.id }, accounts.associateBy { it.id })
+        }.mapLatest { (expenses, categoryMap, accountMap) ->
             expenses.map { entity ->
                 val categoryDomain = categoryMap[entity.categoryId]?.toDomain() ?: Category(
                     id = entity.categoryId,
@@ -51,7 +51,14 @@ class RecurringExpenseRepositoryImpl(
                     isDefault = true
                 )
                 val accountDomain = accountMap[entity.accountId]?.toDomain()
-                entity.toDomain(categoryDomain, accountDomain)
+                val lastExecutedAmount = transactionDao
+                    .getTransactionsByCorrelationTag(recurringTransactionTag(entity.id))
+                    .maxByOrNull { it.date }
+                    ?.amount
+
+                entity.toDomain(categoryDomain, accountDomain).copy(
+                    lastExecutedAmount = lastExecutedAmount
+                )
             }
         }
     }
@@ -138,7 +145,7 @@ class RecurringExpenseRepositoryImpl(
                     accountId = expense.accountId,
                     description = descriptionText,
                     date = scheduledCal.timeInMillis,
-                    tags = "RECURRING,AUTO_GENERATED"
+                    tags = "RECURRING,AUTO_GENERATED,${recurringTransactionTag(expense.id)}"
                 )
 
                 // Insertar la transacción y marcar el mes en una única operación atómica.
@@ -201,12 +208,15 @@ class RecurringExpenseRepositoryImpl(
             accountId = expense.accountId,
             description = descriptionText,
             date = System.currentTimeMillis(),
-            tags = "RECURRING,MANUAL_TRIGGER"
+            tags = "RECURRING,MANUAL_TRIGGER,${recurringTransactionTag(expense.id)}"
         )
 
         // Releer el estado y escribir ambos cambios dentro de la misma transacción SQL.
         return insertRecurringTransactionOnce(expense.id, yearMonthKey, transactionEntity) != null
     }
+
+    private fun recurringTransactionTag(expenseId: Long): String =
+        "RECURRING_EXPENSE_ID=$expenseId;"
 
     private suspend fun insertRecurringTransactionOnce(
         expenseId: Long,
