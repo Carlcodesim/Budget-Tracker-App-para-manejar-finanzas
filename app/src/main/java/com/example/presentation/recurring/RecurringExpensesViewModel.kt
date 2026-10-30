@@ -94,7 +94,7 @@ class RecurringExpensesViewModel(
 
         for (exp in activeExpenses) {
             if (exp.isExecutedInMonth(currentYearMonth)) {
-                totalPaid += exp.amount
+                totalPaid += exp.lastExecutedAmount ?: exp.amount
                 executedCount++
             } else {
                 totalPending += exp.amount
