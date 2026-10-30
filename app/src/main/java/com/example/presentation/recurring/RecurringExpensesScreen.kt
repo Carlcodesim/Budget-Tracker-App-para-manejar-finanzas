@@ -272,7 +272,7 @@ fun RecurringExpensesScreen(
                             expense = expense,
                             currentYearMonth = uiState.currentYearMonth,
                             currentDay = uiState.currentDayOfMonth,
-                            onExecuteNow = { viewModel.executeSingleExpenseNow(expense) },
+                            onExecuteNow = { paidAmount -> viewModel.executeSingleExpenseNow(expense, paidAmount) },
                             onToggleEnabled = { isChecked ->
                                 viewModel.toggleExpenseStatus(expense, isChecked)
                             },
