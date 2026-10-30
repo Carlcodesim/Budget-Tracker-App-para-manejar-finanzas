@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * ViewModel para gestionar los recordatorios financieros de la aplicación,
@@ -156,6 +158,7 @@ class RemindersViewModel(
     }
 
     private var lastDeletedReminder: Reminder? = null
+    private val reminderCompletionMutex = Mutex()
 
     fun deleteReminder(reminder: Reminder, context: Context? = null) {
         lastDeletedReminder = reminder
@@ -189,68 +192,74 @@ class RemindersViewModel(
 
     fun completeReminder(reminder: Reminder, selectedCategoryId: Long?, context: Context? = null) {
         viewModelScope.launch {
-            try {
-                // 1. Marcar como completado en este mes
-                val updated = reminder.copy(isCompletedThisMonth = true)
-                reminderRepository.updateReminder(updated)
-                context?.let { ctx ->
-                    com.example.util.NotificationScheduler.scheduleReminder(ctx, updated)
-                }
-
-                var actionDetails = ""
-
-                // 2. Realizar la acción asociada si tiene monto
-                if (reminder.amount != null && reminder.amount > 0) {
-                    when (reminder.type) {
-                        "PAGO_UNIVERSIDAD" -> {
-                            // Buscar categoría de educación o usar la seleccionada
-                            val catId = selectedCategoryId ?: 6L // Educación por defecto
-                            val tx = Transaction(
-                                amount = reminder.amount,
-                                type = TransactionType.EXPENSE,
-                                category = com.example.domain.model.Category(id = catId, name = "Educación", iconKey = "school", isDefault = true),
-                                description = "Pago automático: ${reminder.title}",
-                                date = java.util.Date()
-                            )
-                            addTransactionUseCase(tx)
-                            actionDetails = " Se registró un gasto de ${com.example.presentation.common.util.CurrencyFormatter.format(reminder.amount)} en Educación."
+            reminderCompletionMutex.withLock {
+                try {
+                    // Consultar el estado persistido para no registrar dos veces el mismo recordatorio.
+                    val currentReminder = reminderRepository.getReminderById(reminder.id) ?: return@withLock
+                    if (currentReminder.isCompletedThisMonth) {
+                        _messageState.update {
+                            it.copy(first = "Este recordatorio ya está completado este mes; no se registró otro pago.")
                         }
-                        "PAGO_SERVICIOS" -> {
-                            val catId = selectedCategoryId ?: 7L // Servicios por defecto
-                            val tx = Transaction(
-                                amount = reminder.amount,
-                                type = TransactionType.EXPENSE,
-                                category = com.example.domain.model.Category(id = catId, name = "Servicios", iconKey = "receipt", isDefault = true),
-                                description = "Pago automático: ${reminder.title}",
-                                date = java.util.Date()
-                            )
-                            addTransactionUseCase(tx)
-                            actionDetails = " Se registró un gasto de ${com.example.presentation.common.util.CurrencyFormatter.format(reminder.amount)} en Servicios."
-                        }
-                        "META_AHORRO" -> {
-                            reminder.associatedGoalId?.let { goalId ->
-                                contributeToGoalUseCase(goalId, reminder.amount)
-                                // Registrar también la transacción para que se refleje en el historial general
-                                val catId = selectedCategoryId ?: 8L // Otros/Ahorros por defecto
+                        return@withLock
+                    }
+
+                    val updated = currentReminder.copy(isCompletedThisMonth = true)
+                    reminderRepository.updateReminder(updated)
+                    context?.let { ctx ->
+                        com.example.util.NotificationScheduler.scheduleReminder(ctx, updated)
+                    }
+
+                    var actionDetails = ""
+                    if (currentReminder.amount != null && currentReminder.amount > 0) {
+                        when (currentReminder.type) {
+                            "PAGO_UNIVERSIDAD" -> {
+                                val catId = selectedCategoryId ?: 6L
                                 val tx = Transaction(
-                                    amount = reminder.amount,
+                                    amount = currentReminder.amount,
                                     type = TransactionType.EXPENSE,
-                                    category = com.example.domain.model.Category(id = catId, name = "Ahorro", iconKey = "savings", isDefault = true),
-                                    description = "Aporte a meta: ${reminder.title}",
+                                    category = com.example.domain.model.Category(id = catId, name = "Educación", iconKey = "school", isDefault = true),
+                                    description = "Pago automático: ${currentReminder.title}",
                                     date = java.util.Date()
                                 )
                                 addTransactionUseCase(tx)
-                                actionDetails = " Se aportaron ${com.example.presentation.common.util.CurrencyFormatter.format(reminder.amount)} a tu meta de ahorro."
+                                actionDetails = " Se registró un gasto de ${com.example.presentation.common.util.CurrencyFormatter.format(currentReminder.amount)} en Educación."
+                            }
+                            "PAGO_SERVICIOS" -> {
+                                val catId = selectedCategoryId ?: 7L
+                                val tx = Transaction(
+                                    amount = currentReminder.amount,
+                                    type = TransactionType.EXPENSE,
+                                    category = com.example.domain.model.Category(id = catId, name = "Servicios", iconKey = "receipt", isDefault = true),
+                                    description = "Pago automático: ${currentReminder.title}",
+                                    date = java.util.Date()
+                                )
+                                addTransactionUseCase(tx)
+                                actionDetails = " Se registró un gasto de ${com.example.presentation.common.util.CurrencyFormatter.format(currentReminder.amount)} en Servicios."
+                            }
+                            "META_AHORRO" -> {
+                                currentReminder.associatedGoalId?.let { goalId ->
+                                    contributeToGoalUseCase(goalId, currentReminder.amount)
+                                    val catId = selectedCategoryId ?: 8L
+                                    val tx = Transaction(
+                                        amount = currentReminder.amount,
+                                        type = TransactionType.EXPENSE,
+                                        category = com.example.domain.model.Category(id = catId, name = "Ahorro", iconKey = "savings", isDefault = true),
+                                        description = "Aporte a meta: ${currentReminder.title}",
+                                        date = java.util.Date()
+                                    )
+                                    addTransactionUseCase(tx)
+                                    actionDetails = " Se aportaron ${com.example.presentation.common.util.CurrencyFormatter.format(currentReminder.amount)} a tu meta de ahorro."
+                                }
                             }
                         }
                     }
-                }
 
-                _messageState.update {
-                    it.copy(first = "¡Recordatorio '${reminder.title}' completado este mes!$actionDetails")
+                    _messageState.update {
+                        it.copy(first = "¡Recordatorio '${currentReminder.title}' completado este mes!$actionDetails")
+                    }
+                } catch (e: Exception) {
+                    _messageState.update { it.copy(second = "Error al completar recordatorio: ${e.localizedMessage}") }
                 }
-            } catch (e: Exception) {
-                _messageState.update { it.copy(second = "Error al completar recordatorio: ${e.localizedMessage}") }
             }
         }
     }
