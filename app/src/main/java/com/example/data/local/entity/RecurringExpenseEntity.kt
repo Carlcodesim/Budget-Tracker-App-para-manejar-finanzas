@@ -22,7 +22,7 @@ data class RecurringExpenseEntity(
     val title: String,
     val amount: Double,
     val categoryId: Long,
-    val accountId: Long = 1L,
+    val accountId: Long = 0L,
     val dayOfMonth: Int, // Día del mes en que se ejecuta el gasto (1..31)
     val description: String? = null,
     val tags: String? = null,
