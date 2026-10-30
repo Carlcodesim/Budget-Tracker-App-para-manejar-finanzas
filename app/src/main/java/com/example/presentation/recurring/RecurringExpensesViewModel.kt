@@ -239,26 +239,41 @@ class RecurringExpensesViewModel(
     ) {
         viewModelScope.launch {
             try {
-                val category = uiState.value.categories.firstOrNull { it.id == categoryId } ?: Category(
-                    id = categoryId,
-                    name = "Otros",
-                    iconKey = "category",
-                    isDefault = true
-                )
-                val account = uiState.value.accounts.firstOrNull { it.id == accountId }
+                val category = uiState.value.categories.firstOrNull {
+                    it.id == categoryId &&
+                        (it.type.equals("EXPENSE", ignoreCase = true) ||
+                            it.type.equals("ALL", ignoreCase = true))
+                } ?: throw IllegalArgumentException("Selecciona una categoría de gasto válida.")
 
-                val recurring = RecurringExpense(
-                    id = editingId,
-                    title = title.trim(),
-                    amount = amount,
-                    category = category,
-                    account = account,
-                    accountId = accountId,
-                    dayOfMonth = dayOfMonth.coerceIn(1, 31),
-                    description = description?.takeIf { it.isNotBlank() },
-                    isEnabled = true,
-                    autoCreate = autoCreate
-                )
+                val account = uiState.value.accounts.firstOrNull { it.id == accountId }
+                    ?: throw IllegalArgumentException("Selecciona una cuenta válida.")
+
+                val existingExpense = uiState.value.recurringExpenses.firstOrNull { it.id == editingId }
+                val recurring = if (existingExpense != null) {
+                    // Al editar, preservar el estado de pago y la configuración que no cambió el usuario.
+                    existingExpense.copy(
+                        title = title.trim(),
+                        amount = amount,
+                        category = category,
+                        account = account,
+                        accountId = accountId,
+                        dayOfMonth = dayOfMonth.coerceIn(1, 31),
+                        description = description?.takeIf { it.isNotBlank() },
+                        autoCreate = autoCreate
+                    )
+                } else {
+                    RecurringExpense(
+                        title = title.trim(),
+                        amount = amount,
+                        category = category,
+                        account = account,
+                        accountId = accountId,
+                        dayOfMonth = dayOfMonth.coerceIn(1, 31),
+                        description = description?.takeIf { it.isNotBlank() },
+                        isEnabled = true,
+                        autoCreate = autoCreate
+                    )
+                }
 
                 if (editingId > 0) {
                     updateRecurringExpenseUseCase(recurring)
