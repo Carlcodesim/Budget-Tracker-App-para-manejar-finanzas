@@ -123,7 +123,6 @@ abstract class AppDatabase : RoomDatabase() {
             INSTANCE?.let { database ->
                 scope.launch(Dispatchers.IO) {
                     populateDefaultCategories(database.categoryDao())
-                    populateDefaultReminders(database.reminderDao())
                     populateDefaultAccounts(database.accountDao())
                     populateDefaultBusinesses(database.businessDao())
                 }
@@ -174,75 +173,34 @@ abstract class AppDatabase : RoomDatabase() {
             categoryDao.insertCategories(defaultCategories)
         }
 
-        private suspend fun populateDefaultReminders(reminderDao: ReminderDao) {
-            val defaultReminders = listOf(
-                ReminderEntity(
-                    id = 1,
-                    type = "REGISTRO_GASTOS",
-                    title = "Registrar gastos diarios",
-                    description = "Registra tus consumos de hoy para mantener tu presupuesto al día.",
-                    isEnabled = true,
-                    time = "20:00"
-                ),
-                ReminderEntity(
-                    id = 2,
-                    type = "PAGO_UNIVERSIDAD",
-                    title = "Pago de universidad",
-                    description = "Cuota mensual para cubrir tu carrera profesional.",
-                    isEnabled = true,
-                    amount = 9500.0,
-                    dueDateDay = 28
-                ),
-                ReminderEntity(
-                    id = 3,
-                    type = "PAGO_SERVICIOS",
-                    title = "Pago de servicios públicos",
-                    description = "Electricidad, internet y agua potable.",
-                    isEnabled = true,
-                    amount = 3200.0,
-                    dueDateDay = 15
-                ),
-                ReminderEntity(
-                    id = 4,
-                    type = "META_AHORRO",
-                    title = "Aporte a meta de ahorro",
-                    description = "Recuerda separar fondos para tus metas personales.",
-                    isEnabled = true,
-                    amount = 1500.0,
-                    dueDateDay = 5
-                )
-            )
-            reminderDao.insertReminders(defaultReminders)
-        }
-
         private suspend fun populateDefaultAccounts(accountDao: AccountDao) {
             val defaultAccounts = listOf(
                 AccountEntity(
                     id = 1,
                     name = "Efectivo",
                     type = "CASH",
-                    initialBalance = 5000.0,
+                    initialBalance = 0.0,
                     colorHex = "#4CAF50" // Verde
                 ),
                 AccountEntity(
                     id = 2,
                     name = "Cuenta bancaria",
                     type = "BANK",
-                    initialBalance = 45000.0,
+                    initialBalance = 0.0,
                     colorHex = "#2196F3" // Azul
                 ),
                 AccountEntity(
                     id = 3,
                     name = "Tarjeta de débito",
                     type = "DEBIT",
-                    initialBalance = 1500.0, // Un saldo inicial de demostración
+                    initialBalance = 0.0,
                     colorHex = "#9C27B0" // Morado
                 ),
                 AccountEntity(
                     id = 4,
                     name = "Tarjeta de crédito",
                     type = "CREDIT",
-                    initialBalance = 12000.0, // Límite de demostración
+                    initialBalance = 0.0,
                     colorHex = "#FF9800" // Naranja
                 )
             )
