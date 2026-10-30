@@ -81,6 +81,7 @@ class RecurringExpensesViewModel(
 
         val currentYearMonth = getCurrentYearMonth()
         val currentDay = getCurrentDayOfMonth()
+        val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
 
         // Cálculos estadísticos
         val activeExpenses = expenses.filter { it.isEnabled }
@@ -105,13 +106,13 @@ class RecurringExpensesViewModel(
         val upcomingUnexecuted = activeExpenses
             .filter { !it.isExecutedInMonth(currentYearMonth) }
             .sortedBy {
-                val diff = it.dayOfMonth - currentDay
-                if (diff >= 0) diff else (diff + 31)
+                val diff = it.effectiveDayInMonth(daysInCurrentMonth) - currentDay
+                if (diff >= 0) diff else (diff + daysInCurrentMonth)
             }
         val nextDue = upcomingUnexecuted.firstOrNull()
         val daysUntilNext = nextDue?.let {
-            val diff = it.dayOfMonth - currentDay
-            if (diff >= 0) diff else (diff + 30)
+            val diff = it.effectiveDayInMonth(daysInCurrentMonth) - currentDay
+            if (diff >= 0) diff else (diff + daysInCurrentMonth)
         }
 
         // Filtrado
