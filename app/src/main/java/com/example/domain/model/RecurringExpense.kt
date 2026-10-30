@@ -17,7 +17,7 @@ data class RecurringExpense(
     val tags: String? = null,
     val isEnabled: Boolean = true,
     val lastExecutedMonth: String? = null, // "yyyy-MM"
-    val autoCreate: Boolean = true,
+    val autoCreate: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     /**
