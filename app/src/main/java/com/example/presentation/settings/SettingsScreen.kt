@@ -1442,7 +1442,7 @@ private fun BudgetCycleSettingsCard(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "Si cobras los días 15 y 30, configurar el día 30 agrupa el sueldo de fin de mes junto a los gastos que cubre en la primera quincena del mes siguiente, resolviendo los falsos déficits contables.",
+                            text = "Si tu nómina cae el día 30, este corte inicia el nuevo ciclo ese día y agrupa los gastos de la primera quincena siguiente. En meses sin día 30, como febrero, se adapta al último día disponible.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
                         )
@@ -1506,7 +1506,7 @@ private fun BudgetCycleSettingsCard(
                 val presets = listOf(
                     1 to "Día 1\n(Mes cal.)",
                     15 to "Día 15\n(Quincena)",
-                    30 to "Día 30\n(Fin de mes)",
+                    30 to "Día 30\n(Corte fijo)",
                     25 to "Día 25\n(Habitual)"
                 )
                 presets.forEach { (day, label) ->
@@ -1607,7 +1607,12 @@ private fun CycleStartDayDialog(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = if (selectedDay == 1) "Mes calendario tradicional (1 al fin de mes)" else "El ciclo iniciará cada día $selectedDay",
+                            text = when (selectedDay) {
+                                1 -> "Mes calendario tradicional (1 al fin de mes)"
+                                30 -> "Corte fijo día 30; febrero se ajusta al último día."
+                                31 -> "Corte día 31; los meses cortos se ajustan al último día."
+                                else -> "El ciclo iniciará cada día $selectedDay"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
