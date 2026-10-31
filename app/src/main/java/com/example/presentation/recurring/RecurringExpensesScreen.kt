@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.presentation.recurring.components.RecurringExpenseFormSheet
 import com.example.presentation.recurring.components.RecurringExpenseItemCard
+import com.example.domain.model.calculateNextDueDate
 import java.util.Calendar
 import java.util.Locale
 
@@ -557,18 +558,38 @@ private fun MonthlyScheduleStrip(
 
             // Tira horizontal de fechas de pago
             val currentCalendar = Calendar.getInstance()
-            val currentYear = currentCalendar.get(Calendar.YEAR)
-            val currentMonth = currentCalendar.get(Calendar.MONTH)
-            val activeExpensesByDay = expenses
-                .filter { expense ->
-                    if (!expense.isEnabled) return@filter false
-                    val due = Calendar.getInstance().apply { timeInMillis = expense.resolvedNextDueDate() }
-                    due.get(Calendar.YEAR) == currentYear && due.get(Calendar.MONTH) == currentMonth
+            val monthStart = (currentCalendar.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val monthEnd = (currentCalendar.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            // Mostrar todas las ocurrencias del periodo, no solo el próximo vencimiento.
+            val activeExpensesByDay = mutableMapOf<Int, MutableList<com.example.domain.model.RecurringExpense>>()
+            expenses.filter { it.isEnabled }.forEach { expense ->
+                var occurrence = expense.resolvedNextDueDate()
+                val anchor = expense.anchorDate.takeIf { it > 0L } ?: occurrence
+                var safetyCounter = 0
+                while (occurrence < monthEnd && safetyCounter < 8) {
+                    if (occurrence >= monthStart) {
+                        val day = Calendar.getInstance().apply { timeInMillis = occurrence }
+                            .get(Calendar.DAY_OF_MONTH)
+                        activeExpensesByDay.getOrPut(day) { mutableListOf() }.add(expense)
+                    }
+                    occurrence = calculateNextDueDate(occurrence, expense.frequency, anchor)
+                    safetyCounter++
                 }
-                .groupBy {
-                    Calendar.getInstance().apply { timeInMillis = it.resolvedNextDueDate() }
-                        .get(Calendar.DAY_OF_MONTH)
-                }
+            }
             val sortedDays = activeExpensesByDay.keys.sorted()
 
             Row(
@@ -579,18 +600,12 @@ private fun MonthlyScheduleStrip(
             ) {
                 sortedDays.forEach { day ->
                     val dayExpenses = activeExpensesByDay[day] ?: emptyList()
-                    val allExecuted = dayExpenses.all { it.isExecutedInMonth(currentYearMonth) }
                     val isToday = day == currentDay
-                    val isPast = day < currentDay
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = if (isToday) {
                             MaterialTheme.colorScheme.primaryContainer
-                        } else if (allExecuted) {
-                            MaterialTheme.colorScheme.surface
-                        } else if (isPast) {
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
                         } else {
                             MaterialTheme.colorScheme.surface
                         },
@@ -612,7 +627,7 @@ private fun MonthlyScheduleStrip(
                                 color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "${dayExpenses.size} ${if (dayExpenses.size == 1) "gasto" else "gastos"}",
+                                text = "${dayExpenses.size} ${if (dayExpenses.size == 1) "vencimiento" else "vencimientos"}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -620,7 +635,7 @@ private fun MonthlyScheduleStrip(
                                 text = "$${String.format(Locale.US, "%,.0f", dayExpenses.sumOf { it.amount })}",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (allExecuted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
