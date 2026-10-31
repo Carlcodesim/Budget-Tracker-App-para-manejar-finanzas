@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
@@ -68,7 +69,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.RecurringExpense
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -86,10 +89,24 @@ fun RecurringExpenseItemCard(
     var showPaymentDialog by remember(expense.id) { mutableStateOf(false) }
     var paymentAmountText by remember(expense.id, expense.amount) { mutableStateOf(expense.amount.toString()) }
     val paidAmount = paymentAmountText.replace(',', '.').toDoubleOrNull()
-    val isExecutedThisMonth = expense.isExecutedInMonth(currentYearMonth)
-    val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
-    val effectiveDueDay = expense.effectiveDayInMonth(daysInCurrentMonth)
-    val daysUntilDue = effectiveDueDay - currentDay
+    val isExecutedThisMonth = expense.paymentCountThisMonth > 0
+    val nextDueDate = expense.resolvedNextDueDate()
+    val dueCalendar = Calendar.getInstance().apply { timeInMillis = nextDueDate }
+    val todayStart = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val dueDateStart = (dueCalendar.clone() as Calendar).apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val daysUntilDue = ((dueDateStart - todayStart) / 86_400_000L).toInt()
+    val isDueToRegister = nextDueDate <= System.currentTimeMillis()
+    val formattedDueDate = SimpleDateFormat("dd/MM/yyyy", Locale("es", "DO")).format(Date(nextDueDate))
 
     Card(
         modifier = modifier
@@ -106,9 +123,9 @@ fun RecurringExpenseItemCard(
             }
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (expense.isEnabled && !isExecutedThisMonth) 3.dp else 1.dp
+            defaultElevation = if (expense.isEnabled && isDueToRegister) 3.dp else 1.dp
         ),
-        border = if (expense.isEnabled && !isExecutedThisMonth && daysUntilDue in 0..2) {
+        border = if (expense.isEnabled && isDueToRegister && daysUntilDue in -2..2) {
             CardDefaults.outlinedCardBorder().copy(
                 brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f)),
                 width = 1.5.dp
@@ -202,7 +219,12 @@ fun RecurringExpenseItemCard(
                         }
                     )
                     Text(
-                        text = "/mes",
+                        text = when (expense.frequency) {
+                            com.example.domain.model.RecurrenceFrequency.WEEKLY -> "/semana"
+                            com.example.domain.model.RecurrenceFrequency.BIWEEKLY -> "/15 días"
+                            com.example.domain.model.RecurrenceFrequency.MONTHLY -> "/mes"
+                            com.example.domain.model.RecurrenceFrequency.YEARLY -> "/año"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -238,7 +260,7 @@ fun RecurringExpenseItemCard(
                                 onEdit()
                             }
                         )
-                        if (expense.isEnabled && !isExecutedThisMonth) {
+                        if (expense.isEnabled && isDueToRegister) {
                             DropdownMenuItem(
                                 text = { Text("Registrar pago realizado") },
                                 leadingIcon = { Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -301,7 +323,7 @@ fun RecurringExpenseItemCard(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = if (effectiveDueDay == expense.dayOfMonth) "Día $effectiveDueDay" else "Día $effectiveDueDay (fin de mes)",
+                                text = "Próximo: $formattedDueDate",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -316,6 +338,13 @@ fun RecurringExpenseItemCard(
                             text = "Pausado",
                             containerColor = MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (isDueToRegister) {
+                        StatusChip(
+                            icon = Icons.Default.PendingActions,
+                            text = "Pago pendiente",
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
                         )
                     } else if (isExecutedThisMonth) {
                         StatusChip(
@@ -353,7 +382,7 @@ fun RecurringExpenseItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (expense.isEnabled && !isExecutedThisMonth) {
+                    if (expense.isEnabled && isDueToRegister) {
                         FilledTonalButton(
                             onClick = { showPaymentDialog = true },
                             modifier = Modifier

@@ -188,7 +188,7 @@ class RecurringExpensesViewModel(
                 if (result.executedCount > 0) {
                     _snackbarMessage.value = "✅ Se crearon ${result.executedCount} transacciones por $${String.format(Locale.US, "%,.2f", result.totalAmount)}."
                 } else {
-                    _snackbarMessage.value = "Al día de hoy no hay más gastos pendientes por crear en este mes."
+                    _snackbarMessage.value = "No hay vencimientos automáticos pendientes por procesar hoy."
                 }
             } catch (e: Exception) {
                 _snackbarMessage.value = "Error al procesar gastos: ${e.message}"

@@ -187,7 +187,7 @@ fun RecurringExpensesScreen(
                         nextDueDays = uiState.daysUntilNextDue,
                         nextDueTitle = uiState.nextDueExpense?.title,
                         nextDueAutoCreate = uiState.nextDueExpense?.autoCreate == true,
-                        onProcessAllClick = { viewModel.syncAndProcessNow(forceAllDue = true) }
+                        onProcessAllClick = { viewModel.syncAndProcessNow(forceAllDue = false) }
                     )
                 }
 
@@ -294,7 +294,7 @@ fun RecurringExpensesScreen(
                     initialExpense = uiState.editingExpense,
                     categories = uiState.categories,
                     accounts = uiState.accounts,
-                    onSave = { title, amount, categoryId, accountId, dayOfMonth, desc, autoCreate ->
+                    onSave = { title, amount, categoryId, accountId, dayOfMonth, desc, autoCreate, frequency, nextDueDate ->
                         viewModel.saveRecurringExpense(
                             title = title,
                             amount = amount,
@@ -303,6 +303,8 @@ fun RecurringExpensesScreen(
                             dayOfMonth = dayOfMonth,
                             description = desc,
                             autoCreate = autoCreate,
+                            frequency = frequency,
+                            nextDueDate = nextDueDate,
                             editingId = uiState.editingExpense?.id ?: 0L
                         )
                     },
@@ -347,7 +349,7 @@ private fun RecurringSummaryHeroCard(
             ) {
                 Column {
                     Text(
-                        text = "TOTAL MENSUAL COMPROMETIDO",
+                        text = "TOTAL MENSUAL ESTIMADO",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
@@ -554,10 +556,19 @@ private fun MonthlyScheduleStrip(
             }
 
             // Tira horizontal de fechas de pago
-            val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
+            val currentCalendar = Calendar.getInstance()
+            val currentYear = currentCalendar.get(Calendar.YEAR)
+            val currentMonth = currentCalendar.get(Calendar.MONTH)
             val activeExpensesByDay = expenses
-                .filter { it.isEnabled }
-                .groupBy { it.effectiveDayInMonth(daysInCurrentMonth) }
+                .filter { expense ->
+                    if (!expense.isEnabled) return@filter false
+                    val due = Calendar.getInstance().apply { timeInMillis = expense.resolvedNextDueDate() }
+                    due.get(Calendar.YEAR) == currentYear && due.get(Calendar.MONTH) == currentMonth
+                }
+                .groupBy {
+                    Calendar.getInstance().apply { timeInMillis = it.resolvedNextDueDate() }
+                        .get(Calendar.DAY_OF_MONTH)
+                }
             val sortedDays = activeExpensesByDay.keys.sorted()
 
             Row(
