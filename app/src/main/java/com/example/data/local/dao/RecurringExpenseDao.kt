@@ -45,8 +45,8 @@ interface RecurringExpenseDao {
     @Query("DELETE FROM recurring_expenses WHERE id = :id")
     suspend fun deleteRecurringExpenseById(id: Long)
 
-    @Query("UPDATE recurring_expenses SET lastExecutedMonth = :yearMonth WHERE id = :id")
-    suspend fun updateLastExecutedMonth(id: Long, yearMonth: String)
+    @Query("UPDATE recurring_expenses SET lastExecutedMonth = :yearMonth, nextDueDate = :nextDueDate WHERE id = :id")
+    suspend fun updateLastExecution(id: Long, yearMonth: String, nextDueDate: Long)
 
     @Query("UPDATE recurring_expenses SET isEnabled = :isEnabled WHERE id = :id")
     suspend fun updateEnabledStatus(id: Long, isEnabled: Boolean)

@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
         RecurringExpenseEntity::class,
         BusinessEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -96,6 +96,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE recurring_expenses ADD COLUMN frequency TEXT NOT NULL DEFAULT 'MONTHLY'")
+                db.execSQL("ALTER TABLE recurring_expenses ADD COLUMN anchorDate INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE recurring_expenses ADD COLUMN nextDueDate INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -103,7 +111,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "budget_tracker_database"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     // Deliberately do not use fallbackToDestructiveMigration: if a migration path is
                     // missing, Room must fail rather than silently erase financial records.
                     // Legacy-version recovery UX and migration coverage must be validated separately.

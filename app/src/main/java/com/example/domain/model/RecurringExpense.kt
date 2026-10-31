@@ -1,9 +1,68 @@
 package com.example.domain.model
 
 import java.util.Calendar
+import java.util.Locale
+
+enum class RecurrenceFrequency(
+    val label: String,
+    val monthlyFactor: Double
+) {
+    WEEKLY("Semanal", 52.0 / 12.0),
+    BIWEEKLY("Quincenal · cada 15 días", 365.2425 / 15.0 / 12.0),
+    MONTHLY("Mensual", 1.0),
+    YEARLY("Anual", 1.0 / 12.0);
+
+    companion object {
+        fun fromStorage(value: String?): RecurrenceFrequency =
+            values().firstOrNull { it.name == value } ?: MONTHLY
+    }
+}
 
 /**
- * Modelo de dominio para un gasto recurrente programado mensual.
+ * Calcula la siguiente fecha del ciclo sin perder el día original en meses cortos.
+ * La frecuencia quincenal se define explícitamente como cada 15 días.
+ */
+fun calculateNextDueDate(
+    currentDueDate: Long,
+    frequency: RecurrenceFrequency,
+    anchorDate: Long
+): Long {
+    val current = Calendar.getInstance().apply { timeInMillis = currentDueDate }
+    val anchor = Calendar.getInstance().apply {
+        timeInMillis = anchorDate.takeIf { it > 0L } ?: currentDueDate
+    }
+
+    when (frequency) {
+        RecurrenceFrequency.WEEKLY -> current.add(Calendar.DAY_OF_MONTH, 7)
+        RecurrenceFrequency.BIWEEKLY -> current.add(Calendar.DAY_OF_MONTH, 15)
+        RecurrenceFrequency.MONTHLY -> {
+            current.set(Calendar.DAY_OF_MONTH, 1)
+            current.add(Calendar.MONTH, 1)
+            current.set(
+                Calendar.DAY_OF_MONTH,
+                anchor.get(Calendar.DAY_OF_MONTH).coerceAtMost(current.getActualMaximum(Calendar.DAY_OF_MONTH))
+            )
+        }
+        RecurrenceFrequency.YEARLY -> {
+            current.add(Calendar.YEAR, 1)
+            current.set(Calendar.MONTH, anchor.get(Calendar.MONTH))
+            current.set(Calendar.DAY_OF_MONTH, 1)
+            current.set(
+                Calendar.DAY_OF_MONTH,
+                anchor.get(Calendar.DAY_OF_MONTH).coerceAtMost(current.getActualMaximum(Calendar.DAY_OF_MONTH))
+            )
+        }
+    }
+
+    current.set(Calendar.HOUR_OF_DAY, 8)
+    current.set(Calendar.MINUTE, 0)
+    current.set(Calendar.SECOND, 0)
+    current.set(Calendar.MILLISECOND, 0)
+    return current.timeInMillis
+}
+
+/**
+ * Modelo de dominio para un gasto periódico.
  */
 data class RecurringExpense(
     val id: Long = 0,
@@ -12,59 +71,63 @@ data class RecurringExpense(
     val category: Category,
     val account: Account? = null,
     val accountId: Long = 0L,
-    val dayOfMonth: Int, // Día del mes (1..31)
+    val dayOfMonth: Int,
     val description: String? = null,
     val tags: String? = null,
     val isEnabled: Boolean = true,
-    val lastExecutedMonth: String? = null, // "yyyy-MM"
-    val lastExecutedAmount: Double? = null, // Importe real del último movimiento recurrente registrado
+    val lastExecutedMonth: String? = null,
+    val lastExecutedAmount: Double? = null,
+    val amountPaidThisMonth: Double = 0.0,
+    val paymentCountThisMonth: Int = 0,
     val autoCreate: Boolean = false,
+    val frequency: RecurrenceFrequency = RecurrenceFrequency.MONTHLY,
+    val anchorDate: Long = 0L,
+    val nextDueDate: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
 ) {
-    /**
-     * Determina si el gasto ya ha sido ejecutado o generado como transacción en el mes dado ("yyyy-MM").
-     */
-    fun isExecutedInMonth(yearMonth: String): Boolean {
-        return lastExecutedMonth == yearMonth
-    }
+    fun isExecutedInMonth(yearMonth: String): Boolean =
+        lastExecutedMonth == yearMonth
 
     /**
-     * Calcula los días restantes para la fecha de cobro en el mes actual.
-     * Si hoy es menor que el día de cobro, retorna la diferencia.
-     * Si hoy es igual, retorna 0.
-     * Si hoy es mayor, indica cuántos días han pasado o días para el próximo mes.
+     * Los registros anteriores a la frecuencia configurable se mantienen mensuales.
+     * Si su vencimiento de este mes ya pasó, se muestra el siguiente mes para no
+     * provocar cargos retroactivos al actualizar la aplicación.
      */
-    fun getDaysUntilDue(currentDay: Int): Int {
-        return dayOfMonth - currentDay
+    fun resolvedNextDueDate(nowMillis: Long = System.currentTimeMillis()): Long {
+        if (nextDueDate > 0L) return nextDueDate
+
+        val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val currentYearMonth = String.format(
+            Locale.US,
+            "%04d-%02d",
+            now.get(Calendar.YEAR),
+            now.get(Calendar.MONTH) + 1
+        )
+        val due = (now.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 8)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            set(Calendar.DAY_OF_MONTH, dayOfMonth.coerceIn(1, getActualMaximum(Calendar.DAY_OF_MONTH)))
+        }
+        val todayStart = (now.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        if (lastExecutedMonth == currentYearMonth || due.before(todayStart)) {
+            due.add(Calendar.MONTH, 1)
+            due.set(Calendar.DAY_OF_MONTH, dayOfMonth.coerceIn(1, due.getActualMaximum(Calendar.DAY_OF_MONTH)))
+        }
+        return due.timeInMillis
     }
 
-    /**
-     * Verifica si el gasto está pendiente de ejecución automática para el día actual y mes dado.
-     */
-    fun effectiveDayInMonth(daysInMonth: Int): Int {
-        require(daysInMonth in 1..31) { "Los días del mes deben estar entre 1 y 31." }
-        return dayOfMonth.coerceIn(1, daysInMonth)
-    }
-
-    /**
-     * Verifica si el gasto ya llegó a su fecha efectiva de ejecución en el mes actual.
-     * Los días 29, 30 o 31 se ajustan al último día cuando el mes es más corto.
-     */
-    fun isDueForExecution(
-        currentDay: Int,
-        currentYearMonth: String,
-        daysInMonth: Int = 31
-    ): Boolean {
-        return isEnabled &&
-            autoCreate &&
-            !isExecutedInMonth(currentYearMonth) &&
-            currentDay >= effectiveDayInMonth(daysInMonth)
-    }
+    val estimatedMonthlyAmount: Double
+        get() = amount * frequency.monthlyFactor
 }
 
-/**
- * Resultado de la ejecución y procesamiento de gastos recurrentes automáticos.
- */
 data class ProcessRecurringResult(
     val executedCount: Int,
     val totalAmount: Double,
