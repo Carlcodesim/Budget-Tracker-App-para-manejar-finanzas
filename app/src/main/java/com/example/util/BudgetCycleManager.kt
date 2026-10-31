@@ -131,7 +131,7 @@ object BudgetCycleManager {
         val startCal = Calendar.getInstance()
         val endCal = Calendar.getInstance()
 
-        val cycleMonthName = "\${monthNamesSpanish[month]} $year"
+        val cycleMonthName = "${monthNamesSpanish[month]} $year"
 
         if (normalizedStartDay == 1) {
             // Mes calendario estándar: 1ro del mes al último día del mes
@@ -170,7 +170,7 @@ object BudgetCycleManager {
                 0
             }
 
-            val dateRangeLabel = "1 \${monthAbbrSpanish[month]} - $daysInMonth \${monthAbbrSpanish[month]}"
+            val dateRangeLabel = "1 ${monthAbbrSpanish[month]} - $daysInMonth ${monthAbbrSpanish[month]}"
 
             return BudgetCycleRange(
                 year = year,
@@ -250,7 +250,7 @@ object BudgetCycleManager {
                 0
             }
 
-            val dateRangeLabel = "$actualStartDay \${monthAbbrSpanish[prevMonth]} - $actualEndDay \${monthAbbrSpanish[month]}"
+            val dateRangeLabel = "$actualStartDay ${monthAbbrSpanish[prevMonth]} - $actualEndDay ${monthAbbrSpanish[month]}"
 
             return BudgetCycleRange(
                 year = year,
