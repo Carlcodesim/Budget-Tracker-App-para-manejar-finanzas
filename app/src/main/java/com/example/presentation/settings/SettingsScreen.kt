@@ -1442,7 +1442,7 @@ private fun BudgetCycleSettingsCard(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "Si tu nómina cae el día 30, este corte inicia el nuevo ciclo ese día y agrupa los gastos de la primera quincena siguiente. En meses sin día 30, como febrero, se adapta al último día disponible.",
+                            text = "El día 30 es un corte fijo. Si cobras el último día natural de cada mes, elige el día 31: se ajusta automáticamente a febrero y a los meses de 30 días.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
                         )
