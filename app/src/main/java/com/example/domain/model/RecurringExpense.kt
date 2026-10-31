@@ -124,6 +124,20 @@ data class RecurringExpense(
         return due.timeInMillis
     }
 
+    fun effectiveDayInMonth(daysInMonth: Int): Int {
+        require(daysInMonth in 1..31) { "Los días del mes deben estar entre 1 y 31." }
+        return dayOfMonth.coerceIn(1, daysInMonth)
+    }
+
+    fun isDueForExecution(
+        currentDay: Int,
+        currentYearMonth: String,
+        daysInMonth: Int = 31
+    ): Boolean {
+        return isEnabled && autoCreate && !isExecutedInMonth(currentYearMonth) &&
+            currentDay >= effectiveDayInMonth(daysInMonth)
+    }
+
     val estimatedMonthlyAmount: Double
         get() = amount * frequency.monthlyFactor
 }

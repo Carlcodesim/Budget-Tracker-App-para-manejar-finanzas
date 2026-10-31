@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.domain.model.Category
 import com.example.domain.model.ProcessRecurringResult
 import com.example.domain.model.RecurringExpense
+import com.example.domain.model.RecurrenceFrequency
 import com.example.domain.usecase.account.GetAccountsUseCase
 import com.example.domain.usecase.category.GetCategoriesUseCase
 import com.example.domain.usecase.recurring.AddRecurringExpenseUseCase
@@ -80,46 +81,56 @@ class RecurringExpensesViewModel(
         val isAutoProcessing = params[7] as Boolean
 
         val currentYearMonth = getCurrentYearMonth()
-        val currentDay = getCurrentDayOfMonth()
-        val daysInCurrentMonth = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
+        val currentCalendar = Calendar.getInstance()
+        val currentDay = currentCalendar.get(Calendar.DAY_OF_MONTH)
+        val monthStart = (currentCalendar.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val nextMonthStart = (currentCalendar.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            add(Calendar.MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val todayStart = (currentCalendar.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
 
-        // Cálculos estadísticos
         val activeExpenses = expenses.filter { it.isEnabled }
-        val totalMonthlyCommitted = activeExpenses.sumOf { it.amount }
-
-        var totalPaid = 0.0
-        var totalPending = 0.0
-        var executedCount = 0
-        var pendingCount = 0
-
-        for (exp in activeExpenses) {
-            if (exp.isExecutedInMonth(currentYearMonth)) {
-                totalPaid += exp.lastExecutedAmount ?: exp.amount
-                executedCount++
-            } else {
-                totalPending += exp.amount
-                pendingCount++
-            }
+        val totalMonthlyCommitted = activeExpenses.sumOf { it.estimatedMonthlyAmount }
+        val totalPaid = activeExpenses.sumOf { it.amountPaidThisMonth }
+        val executedCount = activeExpenses.sumOf { it.paymentCountThisMonth }
+        val pendingCount = activeExpenses.count {
+            val due = it.resolvedNextDueDate()
+            due >= monthStart && due < nextMonthStart
         }
+        val totalPending = (totalMonthlyCommitted - totalPaid).coerceAtLeast(0.0)
 
-        // Próximo gasto a vencer
-        val upcomingUnexecuted = activeExpenses
-            .filter { !it.isExecutedInMonth(currentYearMonth) }
-            .sortedBy {
-                val diff = it.effectiveDayInMonth(daysInCurrentMonth) - currentDay
-                if (diff >= 0) diff else (diff + daysInCurrentMonth)
-            }
-        val nextDue = upcomingUnexecuted.firstOrNull()
+        val nextDue = activeExpenses.minByOrNull { it.resolvedNextDueDate() }
         val daysUntilNext = nextDue?.let {
-            val diff = it.effectiveDayInMonth(daysInCurrentMonth) - currentDay
-            if (diff >= 0) diff else (diff + daysInCurrentMonth)
+            val due = Calendar.getInstance().apply { timeInMillis = it.resolvedNextDueDate() }
+            due.set(Calendar.HOUR_OF_DAY, 0)
+            due.set(Calendar.MINUTE, 0)
+            due.set(Calendar.SECOND, 0)
+            due.set(Calendar.MILLISECOND, 0)
+            ((due.timeInMillis - todayStart) / 86_400_000L).toInt()
         }
 
-        // Filtrado
         val filtered = when (filter) {
             RecurringFilter.ALL -> expenses
-            RecurringFilter.PENDING_THIS_MONTH -> expenses.filter { it.isEnabled && !it.isExecutedInMonth(currentYearMonth) }
-            RecurringFilter.EXECUTED_THIS_MONTH -> expenses.filter { it.isExecutedInMonth(currentYearMonth) }
+            RecurringFilter.PENDING_THIS_MONTH -> expenses.filter {
+                it.isEnabled && it.resolvedNextDueDate() >= monthStart && it.resolvedNextDueDate() < nextMonthStart
+            }
+            RecurringFilter.EXECUTED_THIS_MONTH -> expenses.filter { it.paymentCountThisMonth > 0 }
             RecurringFilter.PAUSED -> expenses.filter { !it.isEnabled }
         }
 
@@ -236,6 +247,8 @@ class RecurringExpensesViewModel(
         dayOfMonth: Int,
         description: String?,
         autoCreate: Boolean,
+        frequency: RecurrenceFrequency,
+        nextDueDate: Long,
         editingId: Long = 0
     ) {
         viewModelScope.launch {
@@ -265,7 +278,10 @@ class RecurringExpensesViewModel(
                         accountId = accountId,
                         dayOfMonth = dayOfMonth.coerceIn(1, 31),
                         description = description?.takeIf { it.isNotBlank() },
-                        autoCreate = autoCreate
+                        autoCreate = autoCreate,
+                        frequency = frequency,
+                        anchorDate = nextDueDate,
+                        nextDueDate = nextDueDate
                     )
                 } else {
                     RecurringExpense(
@@ -277,7 +293,10 @@ class RecurringExpensesViewModel(
                         dayOfMonth = dayOfMonth.coerceIn(1, 31),
                         description = description?.takeIf { it.isNotBlank() },
                         isEnabled = true,
-                        autoCreate = autoCreate
+                        autoCreate = autoCreate,
+                        frequency = frequency,
+                        anchorDate = nextDueDate,
+                        nextDueDate = nextDueDate
                     )
                 }
 

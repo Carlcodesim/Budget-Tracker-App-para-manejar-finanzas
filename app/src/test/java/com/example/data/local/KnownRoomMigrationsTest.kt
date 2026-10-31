@@ -52,6 +52,38 @@ class KnownRoomMigrationsTest {
         val file = context.getDatabasePath(databaseName)
         val legacy = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
         try {
+            // Recreate the v12 recurring-expenses table before the frequency fields existed.
+            legacy.execSQL("DROP TABLE recurring_expenses")
+            legacy.execSQL(
+                """
+                CREATE TABLE recurring_expenses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    title TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    categoryId INTEGER NOT NULL,
+                    accountId INTEGER NOT NULL,
+                    dayOfMonth INTEGER NOT NULL,
+                    description TEXT,
+                    tags TEXT,
+                    isEnabled INTEGER NOT NULL,
+                    lastExecutedMonth TEXT,
+                    autoCreate INTEGER NOT NULL,
+                    createdAt INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            legacy.execSQL("CREATE INDEX index_recurring_expenses_categoryId ON recurring_expenses(categoryId)")
+            legacy.execSQL("CREATE INDEX index_recurring_expenses_accountId ON recurring_expenses(accountId)")
+            legacy.execSQL("CREATE INDEX index_recurring_expenses_dayOfMonth ON recurring_expenses(dayOfMonth)")
+            legacy.execSQL("CREATE INDEX index_recurring_expenses_isEnabled ON recurring_expenses(isEnabled)")
+            legacy.execSQL(
+                """
+                INSERT INTO recurring_expenses
+                (id, title, amount, categoryId, accountId, dayOfMonth, description, tags, isEnabled, lastExecutedMonth, autoCreate, createdAt)
+                VALUES (77, 'Legacy monthly service', 850.0, 41, 1, 12, 'Kept on upgrade', NULL, 1, NULL, 0, 1700000000000)
+                """.trimIndent()
+            )
+
             // Reverse the documented 11 -> 12 delta.
             legacy.execSQL("DROP TABLE businesses")
 
@@ -92,7 +124,8 @@ class KnownRoomMigrationsTest {
                     AppDatabase.MIGRATION_7_8,
                     AppDatabase.MIGRATION_9_10,
                     AppDatabase.MIGRATION_10_11,
-                    AppDatabase.MIGRATION_11_12
+                    AppDatabase.MIGRATION_11_12,
+                    AppDatabase.MIGRATION_12_13
                 )
                 .build()
 
@@ -132,7 +165,16 @@ class KnownRoomMigrationsTest {
                 }
                 assertTrue(transactionIndexes.contains("index_transactions_type_date"))
                 assertTrue(transactionIndexes.contains("index_transactions_accountId_date"))
-                assertEquals(12, db.version)
+                db.query("SELECT title, amount, frequency, anchorDate, nextDueDate FROM recurring_expenses WHERE id = 77").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals("Legacy monthly service", cursor.getString(0))
+                    assertEquals(850.0, cursor.getDouble(1), 0.001)
+                    assertEquals("MONTHLY", cursor.getString(2))
+                    assertEquals(0L, cursor.getLong(3))
+                    assertEquals(0L, cursor.getLong(4))
+                }
+
+                assertEquals(13, db.version)
             } finally {
                 migrated.close()
             }

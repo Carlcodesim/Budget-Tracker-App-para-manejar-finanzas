@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.content.Context
+import java.util.Calendar
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AppDatabase
@@ -45,7 +46,14 @@ class RecurringExpenseRepositoryImplTest {
     }
 
     @Test
-    fun executingSameRecurringExpenseTwiceInOneMonthCreatesOnlyOneTransaction() = runBlocking {
+    fun weeklyRecurringExpenseCanBeRegisteredMoreThanOnceInTheSameMonth() = runBlocking {
+        val dueDate = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_MONTH, -1)
+            set(Calendar.HOUR_OF_DAY, 8)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
         val expenseId = database.recurringExpenseDao().insertRecurringExpense(
             RecurringExpenseEntity(
                 title = "Internet",
@@ -53,7 +61,10 @@ class RecurringExpenseRepositoryImplTest {
                 categoryId = 7L,
                 accountId = 1L,
                 dayOfMonth = 15,
-                isEnabled = true
+                isEnabled = true,
+                frequency = "WEEKLY",
+                anchorDate = dueDate,
+                nextDueDate = dueDate
             )
         )
 
@@ -87,6 +98,29 @@ class RecurringExpenseRepositoryImplTest {
         val expectedMonth = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
             .format(java.util.Date())
         assertEquals(expectedMonth, savedExpense?.lastExecutedMonth)
+
+        // Simulate the next weekly occurrence within the same calendar month.
+        val secondDueDate = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_MONTH, -8)
+            set(Calendar.HOUR_OF_DAY, 8)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE recurring_expenses SET nextDueDate = ? WHERE id = ?",
+            arrayOf(secondDueDate, expenseId)
+        )
+        assertTrue(repository.executeSingleRecurringExpenseNow(expenseId, 1600.0))
+        assertFalse(repository.executeSingleRecurringExpenseNow(expenseId, 999.0))
+
+        database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM transactions").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+        val refreshed = repository.getAllRecurringExpenses().first().single()
+        assertEquals(2, refreshed.paymentCountThisMonth)
+        assertEquals(3350.0, refreshed.amountPaidThisMonth, 0.0)
     }
 
 
