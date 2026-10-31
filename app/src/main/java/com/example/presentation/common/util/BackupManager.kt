@@ -9,6 +9,7 @@ import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.SavingsGoalEntity
 import com.example.data.local.entity.TransactionEntity
+import com.example.util.BudgetCycleManager
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
@@ -101,6 +102,13 @@ object BackupManager {
         rootJson.put("version", 1)
         rootJson.put("exportDateMillis", System.currentTimeMillis())
         rootJson.put("exportDateFormatted", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
+
+        // Persist financial display settings that would otherwise be lost on reinstall.
+        rootJson.put("preferences", JSONObject().apply {
+            put("cycleStartDay", BudgetCycleManager.getStartDay())
+            put("predictedIncome", BudgetCycleManager.getPredictedIncome() ?: JSONObject.NULL)
+            put("currencyCode", CurrencyFormatter.getCurrency())
+        })
 
         // Accounts
         val accountsArray = JSONArray()
@@ -204,6 +212,9 @@ object BackupManager {
                 rec.lastExecutedMonth?.let { put("lastExecutedMonth", it) }
                 put("autoCreate", rec.autoCreate)
                 put("createdAt", rec.createdAt)
+                put("frequency", rec.frequency)
+                put("anchorDate", rec.anchorDate)
+                put("nextDueDate", rec.nextDueDate)
             }
             recurringArray.put(obj)
         }
@@ -386,8 +397,12 @@ object BackupManager {
                         tags = if (obj.has("tags") && !obj.isNull("tags")) obj.getString("tags") else null,
                         isEnabled = obj.optBoolean("isEnabled", true),
                         lastExecutedMonth = if (obj.has("lastExecutedMonth") && !obj.isNull("lastExecutedMonth")) obj.getString("lastExecutedMonth") else null,
-                        autoCreate = obj.optBoolean("autoCreate", true),
-                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                        autoCreate = obj.optBoolean("autoCreate", false),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        // Older JSON backups predate configurable frequencies and remain monthly.
+                        frequency = obj.optString("frequency", "MONTHLY"),
+                        anchorDate = obj.optLong("anchorDate", 0L),
+                        nextDueDate = obj.optLong("nextDueDate", 0L)
                     )
                 )
             }
@@ -420,6 +435,24 @@ object BackupManager {
 
         restoredCount
         }
+        // Restore supported app preferences only after the database transaction succeeds.
+        rootJson.optJSONObject("preferences")?.let { preferences ->
+            if (preferences.has("cycleStartDay")) {
+                BudgetCycleManager.setStartDay(context, preferences.optInt("cycleStartDay", 1))
+            }
+            if (preferences.has("predictedIncome")) {
+                val predictedIncome = if (preferences.isNull("predictedIncome")) {
+                    null
+                } else {
+                    preferences.optDouble("predictedIncome").takeIf { it > 0.0 }
+                }
+                BudgetCycleManager.setPredictedIncome(context, predictedIncome)
+            }
+            if (preferences.has("currencyCode")) {
+                CurrencyFormatter.setCurrency(context, preferences.optString("currencyCode", CurrencyFormatter.DEFAULT_CURRENCY_CODE))
+            }
+        }
+
         // Update the timestamp only after the whole restore transaction succeeds.
         setLastBackupTimestamp(context, System.currentTimeMillis())
         return restoredCount
