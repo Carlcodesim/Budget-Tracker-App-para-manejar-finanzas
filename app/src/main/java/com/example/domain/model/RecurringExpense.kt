@@ -54,7 +54,7 @@ fun calculateNextDueDate(
         }
     }
 
-    current.set(Calendar.HOUR_OF_DAY, 8)
+    current.set(Calendar.HOUR_OF_DAY, 0)
     current.set(Calendar.MINUTE, 0)
     current.set(Calendar.SECOND, 0)
     current.set(Calendar.MILLISECOND, 0)
@@ -105,7 +105,7 @@ data class RecurringExpense(
         )
         val due = (now.clone() as Calendar).apply {
             set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 8)
+            set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
