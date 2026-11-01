@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
         RecurringExpenseEntity::class,
         BusinessEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -104,6 +104,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Remove only the untouched built-in placeholder inserted by older app versions.
+                // Any renamed, edited, or user-created business is preserved.
+                db.execSQL("""
+                    DELETE FROM businesses
+                    WHERE id = 1
+                      AND name = 'INSERC Store'
+                      AND type = 'Tecnología y Comercio'
+                      AND description IN (
+                          'Negocio comercial principal',
+                          'Negocio principal de servicios y venta comercial'
+                      )
+                      AND colorHex = '#2563EB'
+                      AND iconKey = 'storefront'
+                      AND inventoryValue = 0.0
+                """.trimIndent())
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -111,7 +131,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "budget_tracker_database"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     // Deliberately do not use fallbackToDestructiveMigration: if a migration path is
                     // missing, Room must fail rather than silently erase financial records.
                     // Legacy-version recovery UX and migration coverage must be validated separately.
@@ -132,36 +152,7 @@ abstract class AppDatabase : RoomDatabase() {
                 scope.launch(Dispatchers.IO) {
                     populateDefaultCategories(database.categoryDao())
                     populateDefaultAccounts(database.accountDao())
-                    populateDefaultBusinesses(database.businessDao())
                 }
-            }
-        }
-
-        override fun onOpen(db: SupportSQLiteDatabase) {
-            super.onOpen(db)
-            INSTANCE?.let { database ->
-                scope.launch(Dispatchers.IO) {
-                    if (database.businessDao().getBusinessCount() == 0) {
-                        populateDefaultBusinesses(database.businessDao())
-                    }
-                }
-            }
-        }
-
-        private suspend fun populateDefaultBusinesses(businessDao: BusinessDao) {
-            if (businessDao.getBusinessCount() == 0) {
-                businessDao.insertBusiness(
-                    BusinessEntity(
-                        id = 1,
-                        name = "INSERC Store",
-                        type = "Tecnología y Comercio",
-                        description = "Negocio comercial principal",
-                        colorHex = "#2563EB",
-                        iconKey = "storefront",
-                        inventoryValue = 0.0,
-                        createdAt = System.currentTimeMillis()
-                    )
-                )
             }
         }
 

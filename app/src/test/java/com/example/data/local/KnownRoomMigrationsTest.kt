@@ -125,7 +125,8 @@ class KnownRoomMigrationsTest {
                     AppDatabase.MIGRATION_9_10,
                     AppDatabase.MIGRATION_10_11,
                     AppDatabase.MIGRATION_11_12,
-                    AppDatabase.MIGRATION_12_13
+                    AppDatabase.MIGRATION_12_13,
+                    AppDatabase.MIGRATION_13_14
                 )
                 .build()
 
@@ -151,9 +152,9 @@ class KnownRoomMigrationsTest {
                     assertEquals(1700000000000L, cursor.getLong(1))
                 }
 
-                db.query("SELECT name FROM businesses WHERE id = 1").use { cursor ->
-                    assertEquals(true, cursor.moveToFirst())
-                    assertEquals("INSERC Store", cursor.getString(0))
+                db.query("SELECT COUNT(*) FROM businesses").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals(0, cursor.getInt(0))
                 }
 
                 val transactionIndexes = mutableSetOf<String>()
@@ -174,7 +175,7 @@ class KnownRoomMigrationsTest {
                     assertEquals(0L, cursor.getLong(4))
                 }
 
-                assertEquals(13, db.version)
+                assertEquals(14, db.version)
             } finally {
                 migrated.close()
             }

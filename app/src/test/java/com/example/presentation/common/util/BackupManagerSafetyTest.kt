@@ -65,6 +65,19 @@ class BackupManagerSafetyTest {
             assertEquals("Test business", businesses.getJSONObject(0).getString("name"))
             assertEquals(123.45, businesses.getJSONObject(0).getDouble("inventoryValue"), 0.001)
 
+            val restoredDb = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                val restoredCount = BackupManager.importBackupFromJson(context, restoredDb, json.toString())
+                assertEquals(1, restoredCount)
+                val restoredBusiness = restoredDb.businessDao().getBusinessById(77)
+                assertEquals("Test business", restoredBusiness?.name)
+                assertEquals(123.45, restoredBusiness?.inventoryValue ?: 0.0, 0.001)
+            } finally {
+                restoredDb.close()
+            }
+
             val recurring = json.getJSONArray("recurringExpenses").getJSONObject(0)
             assertEquals("BIWEEKLY", recurring.getString("frequency"))
             assertEquals(1700000000000L, recurring.getLong("anchorDate"))
