@@ -412,24 +412,39 @@ object BackupManager {
             }
         }
 
-        // Restore Businesses (optional for backwards compatibility with older JSON backups)
+        // Restore Businesses (optional for backwards compatibility with older JSON backups).
+        // Ignore only the exact untouched placeholder inserted by old releases; user-created
+        // businesses, including edited businesses with the same name, must be restored.
         if (rootJson.has("businesses")) {
             val arr = rootJson.getJSONArray("businesses")
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                db.businessDao().insertBusiness(
-                    BusinessEntity(
-                        id = obj.optLong("id", 0L),
-                        name = obj.optString("name", "Negocio"),
-                        type = obj.optString("type", "Comercio / Ventas"),
-                        description = obj.optString("description", ""),
-                        colorHex = obj.optString("colorHex", "#2563EB"),
-                        iconKey = obj.optString("iconKey", "storefront"),
-                        inventoryValue = obj.optDouble("inventoryValue", 0.0),
-                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
-                    )
+                val business = BusinessEntity(
+                    id = obj.optLong("id", 0L),
+                    name = obj.optString("name", "Negocio"),
+                    type = obj.optString("type", "Comercio / Ventas"),
+                    description = obj.optString("description", ""),
+                    colorHex = obj.optString("colorHex", "#2563EB"),
+                    iconKey = obj.optString("iconKey", "storefront"),
+                    inventoryValue = obj.optDouble("inventoryValue", 0.0),
+                    createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                 )
-                restoredCount += 1
+                val isUntouchedLegacyPlaceholder =
+                    business.id == 1L &&
+                    business.name == "INSERC Store" &&
+                    business.type == "Tecnología y Comercio" &&
+                    business.description in setOf(
+                        "Negocio comercial principal",
+                        "Negocio principal de servicios y venta comercial"
+                    ) &&
+                    business.colorHex == "#2563EB" &&
+                    business.iconKey == "storefront" &&
+                    business.inventoryValue == 0.0
+
+                if (!isUntouchedLegacyPlaceholder) {
+                    db.businessDao().insertBusiness(business)
+                    restoredCount += 1
+                }
             }
         }
 

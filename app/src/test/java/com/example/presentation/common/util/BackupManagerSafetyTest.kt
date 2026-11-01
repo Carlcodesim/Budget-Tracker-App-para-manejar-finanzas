@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -90,6 +91,59 @@ class BackupManagerSafetyTest {
             val preferences = json.getJSONObject("preferences")
             assertEquals(30, preferences.getInt("cycleStartDay"))
             assertEquals(42500.0, preferences.getDouble("predictedIncome"), 0.001)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun importSkipsOnlyUntouchedLegacyBusinessPlaceholder() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val backup = JSONObject().apply {
+            put("version", 1)
+            put("businesses", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("id", 1)
+                    put("name", "INSERC Store")
+                    put("type", "Tecnología y Comercio")
+                    put("description", "Negocio comercial principal")
+                    put("colorHex", "#2563EB")
+                    put("iconKey", "storefront")
+                    put("inventoryValue", 0.0)
+                    put("createdAt", 1700000000000L)
+                })
+                put(JSONObject().apply {
+                    put("id", 2)
+                    put("name", "INSERC Multiservice")
+                    put("type", "Servicios Profesionales")
+                    put("description", "Negocio creado por el usuario")
+                    put("colorHex", "#10B981")
+                    put("iconKey", "storefront")
+                    put("inventoryValue", 2750.0)
+                    put("createdAt", 1700000000001L)
+                })
+                put(JSONObject().apply {
+                    put("id", 3)
+                    put("name", "INSERC Store")
+                    put("type", "Tecnología y Comercio")
+                    put("description", "Negocio editado por el usuario")
+                    put("colorHex", "#2563EB")
+                    put("iconKey", "storefront")
+                    put("inventoryValue", 500.0)
+                    put("createdAt", 1700000000002L)
+                })
+            })
+        }.toString()
+
+        try {
+            val restoredCount = BackupManager.importBackupFromJson(context, db, backup)
+            assertEquals(2, restoredCount)
+            assertEquals(null, db.businessDao().getBusinessById(1))
+            assertEquals("INSERC Multiservice", db.businessDao().getBusinessById(2)?.name)
+            assertEquals("Negocio editado por el usuario", db.businessDao().getBusinessById(3)?.description)
         } finally {
             db.close()
         }

@@ -42,7 +42,7 @@ android {
   buildTypes {
     debug {
       // Audit builds use a separate package so they can coexist with the user's installed app.
-      applicationIdSuffix = ".audit"
+      applicationIdSuffix = ".audit.v14"
     }
     release {
       isCrunchPngs = false
