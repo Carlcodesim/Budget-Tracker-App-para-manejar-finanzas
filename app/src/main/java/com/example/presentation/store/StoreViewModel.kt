@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -116,24 +115,6 @@ class StoreViewModel(
 
     private var lastDeletedTx: Transaction? = null
 
-    init {
-        viewModelScope.launch {
-            businessRepository.getAllBusinesses().firstOrNull()?.let { list ->
-                if (list.isEmpty()) {
-                    val defaultBiz = Business(
-                        name = "INSERC Store",
-                        type = "Tecnología y Comercio",
-                        description = "Negocio comercial principal",
-                        colorHex = "#2563EB",
-                        iconKey = "storefront",
-                        inventoryValue = 0.0
-                    )
-                    businessRepository.insertBusiness(defaultBiz)
-                }
-            }
-        }
-    }
-
     // Helper para determinar a qué negocio pertenece una transacción
     private fun resolveBusinessId(tx: Transaction, businesses: List<Business>): Long {
         // 1. Tag explícito BIZ_<id>
@@ -158,11 +139,11 @@ class StoreViewModel(
             tx.description?.contains("INSERC", ignoreCase = true) == true
         ) {
             val insercBiz = businesses.find { it.name.contains("INSERC", ignoreCase = true) }
-            return insercBiz?.id ?: businesses.firstOrNull()?.id ?: 1L
+            return insercBiz?.id ?: businesses.firstOrNull()?.id ?: 0L
         }
 
         // 4. Fallback: primer negocio registrado
-        return businesses.firstOrNull()?.id ?: 1L
+        return businesses.firstOrNull()?.id ?: 0L
     }
 
     private data class StoreRawData(
@@ -456,7 +437,8 @@ class StoreViewModel(
 
     // Actualiza el valor del inventario para el negocio actualmente activo
     fun updateInventoryValue(value: Double) {
-        val currentBizId = _selectedBusinessId.value ?: uiState.value.businesses.firstOrNull()?.id ?: 1L
+        val currentBizId = _selectedBusinessId.value ?: uiState.value.businesses.firstOrNull()?.id
+            ?: return
         viewModelScope.launch {
             businessRepository.updateInventoryValue(currentBizId, value)
             storeRepository.saveInventoryValue(value)
@@ -483,7 +465,9 @@ class StoreViewModel(
             val effectiveBizId = targetBusinessId
                 ?: _selectedBusinessId.value
                 ?: currentState.businesses.firstOrNull()?.id
-                ?: 1L
+                ?: return@launch
+            // Do not create transactions linked to a non-existent placeholder business.
+            if (currentState.businesses.none { it.id == effectiveBizId }) return@launch
 
             val bizName = currentState.businesses.find { it.id == effectiveBizId }?.name ?: "Negocio"
             val fallbackDesc = if (isSale) "Venta $bizName" else "Gasto $bizName"
@@ -528,7 +512,10 @@ class StoreViewModel(
         targetBusinessId: Long? = null
     ) {
         viewModelScope.launch {
-            val bizId = targetBusinessId ?: item.businessId
+            val availableBusinessIds = uiState.value.businesses.map { it.id }.toSet()
+            val bizId = (targetBusinessId ?: _selectedBusinessId.value ?: item.businessId)
+                .takeIf { it in availableBusinessIds }
+                ?: return@launch
             val updated = item.rawTransaction.copy(
                 description = description.ifBlank { if (isSale) "Venta Comercial" else "Gasto Comercial" },
                 amount = amount,
