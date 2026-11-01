@@ -70,10 +70,14 @@ class BackupManagerSafetyTest {
                 .build()
             try {
                 val restoredCount = BackupManager.importBackupFromJson(context, restoredDb, json.toString())
-                assertEquals(1, restoredCount)
+                assertEquals(2, restoredCount) // One business and one recurring expense.
                 val restoredBusiness = restoredDb.businessDao().getBusinessById(77)
                 assertEquals("Test business", restoredBusiness?.name)
                 assertEquals(123.45, restoredBusiness?.inventoryValue ?: 0.0, 0.001)
+                val restoredRecurring = restoredDb.recurringExpenseDao().getAllRecurringExpensesSync()
+                assertEquals(1, restoredRecurring.size)
+                assertEquals("BIWEEKLY", restoredRecurring.first().frequency)
+                assertEquals(1701296000000L, restoredRecurring.first().nextDueDate)
             } finally {
                 restoredDb.close()
             }
