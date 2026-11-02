@@ -126,3 +126,14 @@ For each stage, report:
 - explicit confirmation that no merge to the default branch occurred.
 
 Do not mark a stage complete based only on successful compilation. Do not merge to the default branch without explicit user authorization.
+
+
+## Implementation log
+
+### Stage 1A — Pure access-policy core (in progress; not runtime enforcement)
+
+- Added `app/src/main/java/com/example/data/recovery/StrictDatabaseAccessPolicy.kt`.
+- Added `app/src/test/java/com/example/data/recovery/StrictDatabaseAccessPolicyTest.kt` with eight decision-policy tests.
+- Added the `feature/**` branch pattern to Android CI push triggers so isolated implementation branches can run the existing unit-test and debug-build workflow.
+- These changes define and test policy decisions, but they do **not** yet prevent Room from opening the original database. `AppDatabase`, `AppContainer`, application startup, workers, receivers, and the widget still need to be routed through an enforced gate.
+- Stage 1 remains incomplete until the gate is wired before every Room acquisition, all bypasses are removed, and the acceptance tests pass.
