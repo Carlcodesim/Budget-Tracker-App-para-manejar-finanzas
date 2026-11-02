@@ -8,6 +8,7 @@ on:
       - main
       - "fix/**"
       - "audit/**"
+      - "feature/**"
 
 permissions:
   contents: read
