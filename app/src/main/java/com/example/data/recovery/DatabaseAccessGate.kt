@@ -98,18 +98,25 @@ object DatabaseAccessGate {
     fun requireAuthorizedDatabaseFile(context: Context): File {
         requireNormalAccess()
 
-        val candidate = authorizedDatabaseFile?.canonicalFile
-        val privateRoot = context.applicationContext.filesDir.canonicalFile
-        val originalDatabase = context.applicationContext
-            .getDatabasePath("budget_tracker_database")
-            .canonicalFile
+        val candidate = try {
+            authorizedDatabaseFile?.canonicalFile
+        } catch (_: Exception) {
+            null
+        }
+        val stillValid = try {
+            val privateRoot = context.applicationContext.filesDir.canonicalFile
+            val originalDatabase = context.applicationContext
+                .getDatabasePath("budget_tracker_database")
+                .canonicalFile
 
-        val stillValid =
             candidate != null &&
                 candidate.path.startsWith(privateRoot.path + File.separator) &&
                 candidate != originalDatabase &&
                 candidate.isFile &&
                 candidate.length() > 0L
+        } catch (_: Exception) {
+            false
+        }
 
         if (!stillValid) {
             authorizedDatabaseFile = null
