@@ -20,6 +20,7 @@ import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.BusinessEntity
 import com.example.data.local.entity.RecurringExpenseEntity
+import com.example.data.recovery.DatabaseAccessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -125,7 +126,11 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
+            // This check must run before consulting a cached instance or constructing Room.
+            // Room must never create/open the original path before strict authorization.
+            DatabaseAccessGate.requireNormalAccess()
             return INSTANCE ?: synchronized(this) {
+                DatabaseAccessGate.requireNormalAccess()
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
