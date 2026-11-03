@@ -83,7 +83,7 @@ object DatabaseSnapshotCopier {
             return SnapshotCopyResult.Rejected("SNAPSHOT_DIRECTORY_CREATION_FAILED")
         }
 
-        try {
+        return try {
             val sourceSetBefore = captureSourceSet(original, wal, journal, shm)
                 ?: return rejectAndClean(snapshotDirectory, "SOURCE_SET_UNREADABLE")
 
@@ -164,7 +164,7 @@ object DatabaseSnapshotCopier {
                 authorizedForRoom = false
             )
         } catch (_: Exception) {
-            return rejectAndClean(snapshotDirectory, "SNAPSHOT_COPY_OR_VERIFICATION_FAILED")
+            rejectAndClean(snapshotDirectory, "SNAPSHOT_COPY_OR_VERIFICATION_FAILED")
         }
     }
 
