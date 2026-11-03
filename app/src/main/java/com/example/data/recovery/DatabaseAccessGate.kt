@@ -105,7 +105,7 @@ object DatabaseAccessGate {
             error("Room access revoked: the authorized recovery copy is unavailable")
         }
 
-        return candidate
+        return checkNotNull(candidate)
     }
 
     @Synchronized
