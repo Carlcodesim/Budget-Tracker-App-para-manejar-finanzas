@@ -137,3 +137,16 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - Added the `feature/**` branch pattern to Android CI push triggers so isolated implementation branches can run the existing unit-test and debug-build workflow.
 - These changes define and test policy decisions, but they do **not** yet prevent Room from opening the original database. `AppDatabase`, `AppContainer`, application startup, workers, receivers, and the widget still need to be routed through an enforced gate.
 - Stage 1 remains incomplete until the gate is wired before every Room acquisition, all bypasses are removed, and the acceptance tests pass.
+
+### Stage 1B — Room acquisition and runtime entry-point guard (implementation in progress)
+
+- Added a process-wide `DatabaseAccessGate`; its default state is `NO_ACCESS` on every process start.
+- `AppDatabase.getDatabase()` now requires an authorized file path before consulting its singleton or constructing Room.
+- Room's configured filename is now the exact authorized recovered-copy path, not the legacy `budget_tracker_database` path.
+- The gate rejects paths outside the app-private `filesDir`, empty/missing files, and the legacy original database path. It rechecks the selected file at acquisition time.
+- A different database path cannot reuse an already-open Room singleton; a controlled close/quiesce/generation switch is still required.
+- `BudgetTrackerApp` no longer starts database observers or database-backed schedulers. `MainActivity` shows a recovery-safe screen without constructing ViewModels or navigating to financial screens.
+- The balance widget, recurring-expense scheduler, workers, and database-backed broadcast receivers now stop while the process has no normal database permit.
+- Added gate tests and a Robolectric test asserting a denied Room acquisition does not create the legacy database file; additional tests reject the original path and exercise the private-copy path check.
+- Important limitation: there is not yet a durable startup evaluator, physical snapshot/certification workflow, active-copy registry, or user authorization UI. No production code publishes authorization evidence, so this branch remains intentionally locked in safe mode. Stage 1 is **not complete** until those components and full bypass tests exist.
+- CI is now configured for `feature/**` pushes. Latest run is being evaluated; no test or build result is claimed until GitHub Actions finishes.
