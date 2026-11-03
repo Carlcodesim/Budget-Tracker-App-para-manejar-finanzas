@@ -1,15 +1,10 @@
 package com.example.data.recovery
 
-/**
- * Pure decision policy for strict database quarantine.
- *
- * This policy does not inspect SQLite files and does not itself block Room.
- * It is the fail-closed decision core that startup/storage integration must call
- * before any database instance is constructed.
- */
 enum class DatabaseCondition {
     ABSENT,
+    HEADER_RECOGNIZED,
     SUPPORTED,
+    LEGACY_MIGRATION_CANDIDATE,
     LEGACY_UNSUPPORTED,
     FUTURE_VERSION,
     UNKNOWN,
@@ -49,7 +44,7 @@ data class RecoveryEvidence(
 object StrictDatabaseAccessPolicy {
     /**
      * Normal access is granted only when every independent safety condition is
-     * true. Unknown, absent, failed, or incomplete states are denied by default.
+     * true. Header recognition is deliberately insufficient.
      */
     fun permit(evidence: RecoveryEvidence): DatabasePermit {
         if (evidence.condition != DatabaseCondition.SUPPORTED &&
@@ -68,10 +63,10 @@ object StrictDatabaseAccessPolicy {
 
         val fullyAuthorized =
             evidence.snapshotCertified &&
-            evidence.recoveryCompleted &&
-            evidence.recoveredCopyValidated &&
-            evidence.explicitAuthorization &&
-            evidence.phase == RecoveryPhase.READY_FOR_AUTHORIZATION
+                evidence.recoveryCompleted &&
+                evidence.recoveredCopyValidated &&
+                evidence.explicitAuthorization &&
+                evidence.phase == RecoveryPhase.READY_FOR_AUTHORIZATION
 
         return if (fullyAuthorized) DatabasePermit.NORMAL_ACCESS else DatabasePermit.NO_ACCESS
     }
