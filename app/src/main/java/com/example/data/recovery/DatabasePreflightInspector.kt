@@ -140,6 +140,33 @@ object DatabasePreflightInspector {
                 )
             }
 
+            // A hot rollback journal or WAL/SHM sidecars can change how the main
+            // database file must be interpreted. Classify this before judging page
+            // counts or alignment, which may be affected by uncheckpointed commits.
+            if (hasJournal) {
+                return result(
+                    DatabaseCondition.INCONSISTENT,
+                    "ROLLBACK_JOURNAL_PRESENT",
+                    "Se detectó un journal SQLite. Se requiere una instantánea aislada y validación.",
+                    schemaVersion = schemaVersion,
+                    pageSize = pageSize,
+                    sidecars = sidecars,
+                    fileSize = fileSize
+                )
+            }
+
+            if (hasWal || hasShm) {
+                return result(
+                    DatabaseCondition.UNKNOWN,
+                    "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT",
+                    "Se detectaron archivos WAL/SHM. El archivo principal por sí solo no se considera una copia completa.",
+                    schemaVersion = schemaVersion,
+                    pageSize = pageSize,
+                    sidecars = sidecars,
+                    fileSize = fileSize
+                )
+            }
+
             if (fileSize < pageSize || (fileSize % pageSize != 0L)) {
                 return result(
                     DatabaseCondition.CORRUPT,
@@ -158,31 +185,6 @@ object DatabasePreflightInspector {
                     DatabaseCondition.CORRUPT,
                     "DECLARED_PAGE_COUNT_EXCEEDS_FILE",
                     "El encabezado declara más páginas de las que contiene el archivo.",
-                    schemaVersion = schemaVersion,
-                    pageSize = pageSize,
-                    sidecars = sidecars,
-                    fileSize = fileSize
-                )
-            }
-
-            // Never assume a main-file-only view is complete when SQLite sidecars exist.
-            if (hasJournal) {
-                return result(
-                    DatabaseCondition.INCONSISTENT,
-                    "ROLLBACK_JOURNAL_PRESENT",
-                    "Se detectó un journal SQLite. Se requiere una instantánea aislada y validación.",
-                    schemaVersion = schemaVersion,
-                    pageSize = pageSize,
-                    sidecars = sidecars,
-                    fileSize = fileSize
-                )
-            }
-
-            if (hasWal || hasShm) {
-                return result(
-                    DatabaseCondition.UNKNOWN,
-                    "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT",
-                    "Se detectaron archivos WAL/SHM. El archivo principal por sí solo no se considera una copia completa.",
                     schemaVersion = schemaVersion,
                     pageSize = pageSize,
                     sidecars = sidecars,
