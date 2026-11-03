@@ -55,6 +55,9 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        @Volatile
+        private var INSTANCE_PATH: String? = null
+
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE reminders ADD COLUMN notifyDaysBefore INTEGER NOT NULL DEFAULT 1")
@@ -128,13 +131,30 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             // This check must run before consulting a cached instance or constructing Room.
             // Room must never create/open the original path before strict authorization.
-            DatabaseAccessGate.requireNormalAccess()
-            return INSTANCE ?: synchronized(this) {
+            val authorizedFile = DatabaseAccessGate.requireAuthorizedDatabaseFile(context.applicationContext)
+            val authorizedPath = authorizedFile.absolutePath
+            INSTANCE?.let { existing ->
+                check(INSTANCE_PATH == authorizedPath) {
+                    "A different database generation is already open; close and quiesce it before switching"
+                }
+                return existing
+            }
+            return synchronized(this) {
                 DatabaseAccessGate.requireNormalAccess()
+                val currentAuthorizedFile = DatabaseAccessGate.requireAuthorizedDatabaseFile(context.applicationContext)
+                check(currentAuthorizedFile.absolutePath == authorizedPath) {
+                    "Authorized database changed during Room acquisition"
+                }
+                INSTANCE?.let { existing ->
+                    check(INSTANCE_PATH == authorizedPath) {
+                        "A different database generation is already open; close and quiesce it before switching"
+                    }
+                    return@synchronized existing
+                }
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "budget_tracker_database"
+                    authorizedPath
                 )
                     .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     // Deliberately do not use fallbackToDestructiveMigration: if a migration path is
@@ -143,6 +163,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addCallback(AppDatabaseCallback(scope))
                     .build()
                 INSTANCE = instance
+                INSTANCE_PATH = authorizedPath
                 instance
             }
         }
