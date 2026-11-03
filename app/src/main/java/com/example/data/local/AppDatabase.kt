@@ -58,6 +58,12 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE_PATH: String? = null
 
+        /**
+         * True once Room has been constructed in this process. Snapshot creation
+         * must not race or overlap with a live Room instance.
+         */
+        fun hasInstance(): Boolean = INSTANCE != null
+
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE reminders ADD COLUMN notifyDaysBefore INTEGER NOT NULL DEFAULT 1")
