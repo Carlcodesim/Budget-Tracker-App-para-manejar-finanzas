@@ -104,4 +104,18 @@ class StrictDatabaseAccessPolicyTest {
 
         assertEquals(DatabasePermit.NO_ACCESS, StrictDatabaseAccessPolicy.permit(evidence))
     }
+    @Test
+    fun recognizedHeaderIsNotEnoughForNormalAccess() {
+        val evidence = RecoveryEvidence(
+            condition = DatabaseCondition.HEADER_RECOGNIZED,
+            phase = RecoveryPhase.READY_FOR_AUTHORIZATION,
+            snapshotCertified = true,
+            recoveryCompleted = true,
+            recoveredCopyValidated = true,
+            explicitAuthorization = true
+        )
+
+        assertEquals(DatabasePermit.RECOVERY_COPY_ONLY, StrictDatabaseAccessPolicy.permit(evidence))
+    }
+
 }
