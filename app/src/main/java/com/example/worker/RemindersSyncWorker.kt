@@ -1,5 +1,6 @@
 package com.example.worker
 
+import com.example.data.recovery.DatabaseAccessGate
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -28,6 +29,7 @@ class RemindersSyncWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return@withContext Result.success()
         try {
             val app = context.applicationContext as? BudgetTrackerApp ?: return@withContext Result.success()
             val reminderRepository = app.appContainer.reminderRepository
