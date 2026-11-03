@@ -117,7 +117,7 @@ object DatabasePreflightInspector {
             val declaredPages = unsignedInt(header, SQLITE_DATABASE_PAGES_OFFSET)
             val schemaVersion = unsignedInt(header, SQLITE_USER_VERSION_OFFSET).toInt()
 
-            val validPageSize = pageSize in 512..65536 && pageSize and (pageSize - 1) == 0
+            val validPageSize = pageSize in 512..65536 && (pageSize and (pageSize - 1)) == 0
             val validJournalVersions = readVersion in 1..2 && writeVersion in 1..2
             val usablePageSize = pageSize - reservedBytes >= 480
             val validPayloadFractions =
