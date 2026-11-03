@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.ui.theme.MyApplicationTheme
 import com.example.data.recovery.DatabaseAccessGate
+import com.example.data.recovery.DatabaseStartupState
 
 /**
  * Actividad principal de la aplicación. Configura la visualización de borde a borde (Edge-to-Edge),
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
         // This branch remains in a dedicated recovery-safe screen. It deliberately
         // does not create a ViewModel, navigate to financial screens, or obtain Room.
         val permit = DatabaseAccessGate.currentPermit()
+        val preflight = DatabaseStartupState.current()
         setContent {
             MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
                 Surface(
@@ -63,6 +65,32 @@ class MainActivity : ComponentActivity() {
                             text = "Estado de acceso: $permit",
                             style = MaterialTheme.typography.bodySmall
                         )
+                        Text(
+                            modifier = Modifier.padding(top = 12.dp),
+                            text = preflight?.message ?: "La inspección inicial aún no está disponible.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        preflight?.schemaVersion?.let { version ->
+                            Text(
+                                modifier = Modifier.padding(top = 8.dp),
+                                text = "Versión detectada: $version",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        preflight?.let { inspection ->
+                            val sidecars = buildList {
+                                if (inspection.hasWal) add("WAL")
+                                if (inspection.hasShm) add("SHM")
+                                if (inspection.hasJournal) add("JOURNAL")
+                            }
+                            if (sidecars.isNotEmpty()) {
+                                Text(
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    text = "Archivos auxiliares detectados: ${sidecars.joinToString()}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
                     }
                 }
             }
