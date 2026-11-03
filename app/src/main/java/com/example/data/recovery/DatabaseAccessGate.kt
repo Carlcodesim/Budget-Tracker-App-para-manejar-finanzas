@@ -57,9 +57,12 @@ object DatabaseAccessGate {
             return permit
         }
 
-        val candidate: File?
+        val candidate = try {
+            activeDatabaseCopy?.canonicalFile
+        } catch (_: Exception) {
+            null
+        }
         val isPrivateRecoveredCopy = try {
-            candidate = activeDatabaseCopy?.canonicalFile
             val privateRoot = context?.filesDir?.canonicalFile
             val originalDatabase = context?.getDatabasePath("budget_tracker_database")?.canonicalFile
 
