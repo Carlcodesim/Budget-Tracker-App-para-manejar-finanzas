@@ -166,4 +166,29 @@ class DatabasePreflightInspectorTest {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
+    @Test
+    fun walSidecarTakesPrecedenceOverAnUncheckpointedMainFilePageCount() {
+        val file = sqliteFile("wal-truncate.db", schemaVersion = 14)
+        val bytes = file.readBytes()
+        putInt(bytes, 28, 2)
+        file.writeBytes(bytes)
+        File(file.path + "-wal").writeBytes(byteArrayOf(1, 2, 3))
+
+        val result = DatabasePreflightInspector.inspect(file)
+
+        assertEquals(DatabaseCondition.UNKNOWN, result.condition)
+        assertEquals("WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT", result.reasonCode)
+    }
+
+    @Test
+    fun shmWithoutWalStillRequiresConservativeHandling() {
+        val file = sqliteFile("shm-only.db", schemaVersion = 14)
+        File(file.path + "-shm").writeBytes(byteArrayOf(1))
+
+        val result = DatabasePreflightInspector.inspect(file)
+
+        assertEquals(DatabaseCondition.UNKNOWN, result.condition)
+        assertTrue(result.hasShm)
+    }
+
 }
