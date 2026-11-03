@@ -162,3 +162,15 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - `BudgetTrackerApp.onCreate()` publishes the read-only preflight report before creating the lazy dependency container. The safe screen displays the classification and sidecar hints; this still does not grant Room permission.
 - Added `DatabasePreflightInspectorTest.kt` for absent files, valid current headers, future schema, migration candidates, known migration gaps, WAL and journal sidecars, invalid signatures, truncated headers, and byte/hash preservation.
 - No original database bytes are written or migrated by the inspector. It must not be used as a substitute for SQLite integrity checking on a validated independent copy.
+
+
+### Stage 2A — Raw private snapshot copier (prototype; not certified)
+
+- Added `DatabaseSnapshotCopier.kt` to copy the original main database plus present `-wal` and `-journal` files into a unique directory below app-private `filesDir/recovery/snapshots`.
+- A process-local file lock prevents two snapshot attempts through this copier from overlapping.
+- Copies are streamed, flushed and fsynced. SHA-256 and size are checked against the source. The durable source set is hashed before and after copying; any detected change or sidecar appearance/disappearance rejects the snapshot and removes the partial copy.
+- `-shm` is recorded as observed but not copied because it is transient WAL-index/locking state; the isolated copy must reconstruct its own SHM.
+- The manifest explicitly records `integrity_certified=false` and `normal_access_authorized=false`. The returned result also carries both flags as false.
+- The copier refuses to run while normal database permission is active or while an AppDatabase Room singleton has been constructed in this process.
+- Added Robolectric tests for missing original DB, byte-identical main+WAL copy, preserving-but-not-copying SHM, rollback journal copy, source immutability, and independent snapshot IDs.
+- This is a raw copy mechanism, not a complete recovery/snapshot certification protocol. It does not yet provide a durable snapshot journal, disk-full fault injection, process-death recovery, isolated SQLite integrity checks, WAL/journal recovery validation, or proof of system-wide quiescence. It is not called automatically and must not be treated as an authorized active database.
