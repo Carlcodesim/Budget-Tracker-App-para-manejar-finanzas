@@ -81,17 +81,17 @@ object DatabaseSnapshotCopier {
                 ?: return rejectAndClean(snapshotDirectory, "SOURCE_SET_UNREADABLE")
 
             val snapshotDatabase = File(snapshotDirectory, SNAPSHOT_DATABASE_NAME)
-            copyAndVerify(sourceSetBefore.database, snapshotDatabase)
+            copyAndVerify(original, snapshotDatabase, sourceSetBefore.database)
 
             val snapshotWal = if (sourceSetBefore.wal.exists) {
                 File(snapshotDirectory, SNAPSHOT_WAL_NAME).also {
-                    copyAndVerify(sourceSetBefore.wal, it)
+                    copyAndVerify(wal, it, sourceSetBefore.wal)
                 }
             } else null
 
             val snapshotJournal = if (sourceSetBefore.journal.exists) {
                 File(snapshotDirectory, SNAPSHOT_JOURNAL_NAME).also {
-                    copyAndVerify(sourceSetBefore.journal, it)
+                    copyAndVerify(journal, it, sourceSetBefore.journal)
                 }
             } else null
 
@@ -196,10 +196,6 @@ object DatabaseSnapshotCopier {
             lastModified = file.lastModified(),
             sha256 = ""
         )
-    }
-
-    private fun copyAndVerify(source: SourceFileState, destination: File) {
-        error("Source path is required to copy; use copySourceAndVerify")
     }
 
     private fun copyAndVerify(source: File, destination: File, expected: SourceFileState) {
