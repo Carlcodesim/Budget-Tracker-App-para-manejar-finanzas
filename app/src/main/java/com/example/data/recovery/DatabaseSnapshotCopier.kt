@@ -1,6 +1,7 @@
 package com.example.data.recovery
 
 import android.content.Context
+import com.example.data.local.AppDatabase
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -23,6 +24,12 @@ object DatabaseSnapshotCopier {
 
     fun copyOriginalDatabase(context: Context): SnapshotCopyResult {
         val appContext = context.applicationContext
+        // Snapshotting is forbidden if this process currently has normal database
+        // permission or has already constructed Room. A later coordinator must
+        // revoke access and close/quiesce all Room users before calling this method.
+        if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
+            return SnapshotCopyResult.Rejected("ROOM_ACCESS_NOT_QUIESCED")
+        }
         val original = appContext.getDatabasePath(ORIGINAL_DATABASE_NAME)
         val recoveryRoot = File(appContext.filesDir, RECOVERY_DIRECTORY)
 
