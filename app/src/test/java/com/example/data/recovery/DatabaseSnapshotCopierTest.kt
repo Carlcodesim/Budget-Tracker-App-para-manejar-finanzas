@@ -69,7 +69,7 @@ class DatabaseSnapshotCopierTest {
         assertArrayEquals(shmBytes, File(original.path + "-shm").readBytes())
 
         val manifest = Properties().apply {
-            created.manifestFile.inputStream().use { manifest.load(it) }
+            created.manifestFile.inputStream().use { load(it) }
         }
         assertEquals("false", manifest.getProperty("integrity_certified"))
         assertEquals("false", manifest.getProperty("normal_access_authorized"))
