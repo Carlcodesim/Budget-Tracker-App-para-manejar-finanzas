@@ -36,21 +36,22 @@ class DatabaseAccessGateTest {
     }
 
     @Test
-    fun onlyFullyAuthorizedEvidenceEnablesNormalAccess() {
+    fun policyEvidenceWithoutAnAuthorizedRecoveryFileCannotEnableNormalAccess() {
         val permit = DatabaseAccessGate.applyEvidence(
-            RecoveryEvidence(
+            evidence = RecoveryEvidence(
                 condition = DatabaseCondition.SUPPORTED,
                 phase = RecoveryPhase.READY_FOR_AUTHORIZATION,
                 snapshotCertified = true,
                 recoveryCompleted = true,
                 recoveredCopyValidated = true,
                 explicitAuthorization = true
-            )
+            ),
+            activeDatabaseCopy = null,
+            context = null
         )
 
-        assertEquals(DatabasePermit.NORMAL_ACCESS, permit)
-        assertTrue(DatabaseAccessGate.isNormalAccessAllowed())
-        DatabaseAccessGate.requireNormalAccess()
+        assertEquals(DatabasePermit.NO_ACCESS, permit)
+        assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
     }
 
     @Test
