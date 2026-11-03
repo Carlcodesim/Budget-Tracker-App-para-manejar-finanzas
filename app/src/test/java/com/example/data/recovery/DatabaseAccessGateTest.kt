@@ -57,14 +57,16 @@ class DatabaseAccessGateTest {
     @Test
     fun incompleteEvidenceKeepsGateClosed() {
         val permit = DatabaseAccessGate.applyEvidence(
-            RecoveryEvidence(
+            evidence = RecoveryEvidence(
                 condition = DatabaseCondition.SUPPORTED,
                 phase = RecoveryPhase.READY_FOR_AUTHORIZATION,
                 snapshotCertified = true,
                 recoveryCompleted = true,
                 recoveredCopyValidated = true,
                 explicitAuthorization = false
-            )
+            ),
+            activeDatabaseCopy = null,
+            context = null
         )
 
         assertEquals(DatabasePermit.NO_ACCESS, permit)
