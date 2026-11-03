@@ -150,3 +150,15 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - Added gate tests and a Robolectric test asserting a denied Room acquisition does not create the legacy database file; additional tests reject the original path and exercise the private-copy path check.
 - Important limitation: there is not yet a durable startup evaluator, physical snapshot/certification workflow, active-copy registry, or user authorization UI. No production code publishes authorization evidence, so this branch remains intentionally locked in safe mode. Stage 1 is **not complete** until those components and full bypass tests exist.
 - CI is now configured for `feature/**` pushes. Latest run is being evaluated; no test or build result is claimed until GitHub Actions finishes.
+
+
+### Stage 1C — Read-only SQLite preflight (in progress; not integrity certification)
+
+- Added `DatabasePreflightInspector.kt`. It reads only the first 100 bytes of the original SQLite file and checks filesystem sidecar presence. It does not use Room, Android SQLite APIs, or a writable file descriptor.
+- It checks SQLite magic, page-size constraints, SQLite read/write format versions, reserved bytes, payload fractions, encoding, minimum file size, page alignment, and the declared page count.
+- It classifies schema 14 as `HEADER_RECOGNIZED`, **not** `SUPPORTED`. A recognized header is not proof of `quick_check`, `integrity_check`, schema identity, or financial consistency.
+- Versions 9–13 are classified as migration candidates only; the registered migrations must still be rehearsed on an independent copy. Versions 1–8 are conservatively unsupported because the registered path has a known gap at 8→9 (and earlier versions have no complete registered chain). Future versions are quarantined.
+- Any WAL/SHM sidecar prevents treating the main DB file alone as a complete snapshot. A rollback journal is classified inconsistent. Sidecar recovery/snapshot handling is intentionally not implemented yet.
+- `BudgetTrackerApp.onCreate()` publishes the read-only preflight report before creating the lazy dependency container. The safe screen displays the classification and sidecar hints; this still does not grant Room permission.
+- Added `DatabasePreflightInspectorTest.kt` for absent files, valid current headers, future schema, migration candidates, known migration gaps, WAL and journal sidecars, invalid signatures, truncated headers, and byte/hash preservation.
+- No original database bytes are written or migrated by the inspector. It must not be used as a substitute for SQLite integrity checking on a validated independent copy.
