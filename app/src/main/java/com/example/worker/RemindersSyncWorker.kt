@@ -116,6 +116,7 @@ class RemindersSyncWorker(
          * Registra la comprobación periódica en segundo plano mediante WorkManager.
          */
         fun enqueue(context: Context) {
+            if (!DatabaseAccessGate.isNormalAccessAllowed()) return
             try {
                 val constraints = Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
