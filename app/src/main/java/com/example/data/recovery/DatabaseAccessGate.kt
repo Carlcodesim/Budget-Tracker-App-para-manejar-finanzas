@@ -43,6 +43,12 @@ object DatabaseAccessGate {
         activeDatabaseCopy: File?,
         context: Context?
     ): DatabasePermit {
+        // Revoke any previous in-process grant before evaluating new evidence.
+        // A failed re-evaluation must never leave a stale authorization active.
+        authorizedDatabaseFile = null
+        permit = DatabasePermit.NO_ACCESS
+        denialReason = "Recovery evidence is being re-evaluated"
+
         val policyPermit = StrictDatabaseAccessPolicy.permit(evidence)
         if (policyPermit != DatabasePermit.NORMAL_ACCESS) {
             authorizedDatabaseFile = null
@@ -51,17 +57,21 @@ object DatabaseAccessGate {
             return permit
         }
 
-        val candidate = activeDatabaseCopy?.canonicalFile
-        val privateRoot = context?.filesDir?.canonicalFile
-        val originalDatabase = context?.getDatabasePath("budget_tracker_database")?.canonicalFile
+        val candidate: File?
+        val isPrivateRecoveredCopy = try {
+            candidate = activeDatabaseCopy?.canonicalFile
+            val privateRoot = context?.filesDir?.canonicalFile
+            val originalDatabase = context?.getDatabasePath("budget_tracker_database")?.canonicalFile
 
-        val isPrivateRecoveredCopy =
             candidate != null &&
                 privateRoot != null &&
                 candidate.path.startsWith(privateRoot.path + File.separator) &&
                 candidate != originalDatabase &&
                 candidate.isFile &&
                 candidate.length() > 0L
+        } catch (_: Exception) {
+            false
+        }
 
         if (!isPrivateRecoveredCopy) {
             authorizedDatabaseFile = null
@@ -70,7 +80,7 @@ object DatabaseAccessGate {
             return permit
         }
 
-        authorizedDatabaseFile = candidate
+        authorizedDatabaseFile = checkNotNull(candidate)
         permit = DatabasePermit.NORMAL_ACCESS
         denialReason = "Authorized recovered database copy"
         return permit
