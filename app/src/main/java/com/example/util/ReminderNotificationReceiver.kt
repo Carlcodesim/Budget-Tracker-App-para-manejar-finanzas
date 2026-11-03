@@ -1,5 +1,6 @@
 package com.example.util
 
+import com.example.data.recovery.DatabaseAccessGate
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 class ReminderNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return
         if (intent.action == NotificationScheduler.ACTION_SHOW_REMINDER) {
             val pendingResult = goAsync()
 
