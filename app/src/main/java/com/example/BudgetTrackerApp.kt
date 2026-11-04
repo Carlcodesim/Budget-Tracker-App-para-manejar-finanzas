@@ -3,6 +3,9 @@ package com.example
 import android.app.Application
 import com.example.di.AppContainer
 import com.example.data.recovery.DatabasePreflightInspector
+import com.example.data.recovery.ActiveDatabaseCopyRegistry
+import com.example.data.recovery.DatabaseCondition
+import com.example.data.recovery.DatabasePreflightResult
 import com.example.data.recovery.DatabaseStartupState
 
 /**
@@ -16,9 +19,19 @@ class BudgetTrackerApp : Application() {
         super.onCreate()
         // Read only the SQLite header and sidecar presence. This does not use Room,
         // open SQLite, or grant normal database access.
-        DatabaseStartupState.publish(
-            DatabasePreflightInspector.inspect(getDatabasePath("budget_tracker_database"))
-        )
+        val startupInspection = when (val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(this)) {
+            is ActiveDatabaseCopyRegistry.Source.LegacyOriginal ->
+                DatabasePreflightInspector.inspect(source.file)
+            is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy ->
+                DatabasePreflightInspector.inspect(source.file)
+            is ActiveDatabaseCopyRegistry.Source.Rejected ->
+                DatabasePreflightResult(
+                    condition = DatabaseCondition.IO_ERROR,
+                    reasonCode = source.reasonCode,
+                    message = "No se pudo identificar con seguridad la última base activa. El acceso permanece bloqueado."
+                )
+        }
+        DatabaseStartupState.publish(startupInspection)
         appContainer = AppContainer(this)
         com.example.presentation.common.util.CurrencyFormatter.init(this)
         com.example.util.BudgetCycleManager.init(this)
