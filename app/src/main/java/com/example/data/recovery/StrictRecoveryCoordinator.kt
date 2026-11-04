@@ -31,7 +31,8 @@ object StrictRecoveryCoordinator {
         val databaseFile: File,
         val validationReport: File,
         val financialReport: File,
-        val databaseSha256: String
+        val databaseSha256: String,
+        val roomIdentityHash: String
     )
 
     @Volatile
@@ -187,7 +188,8 @@ object StrictRecoveryCoordinator {
                 databaseFile = databaseFile,
                 validationReport = validated.reportFile.canonicalFile,
                 financialReport = audited.reportFile.canonicalFile,
-                databaseSha256 = audited.databaseSha256After
+                databaseSha256 = audited.databaseSha256After,
+                roomIdentityHash = validated.roomIdentityHash
             )
 
             PreparationResult.ReadyForAuthorization(
@@ -251,7 +253,7 @@ object StrictRecoveryCoordinator {
                     validation.getProperty("snapshot_id") == pending.snapshotId &&
                     validation.getProperty("workspace_id") == workspace.name &&
                     validation.getProperty("schema_version") == CURRENT_SCHEMA_VERSION.toString() &&
-                    validation.getProperty("room_identity_hash") == "86254750241babac4b8d52996a675549" &&
+                    validation.getProperty("room_identity_hash") == pending.roomIdentityHash && pending.roomIdentityHash.isNotBlank() &&
                     validation.getProperty("quick_check") == "ok" &&
                     validation.getProperty("integrity_check") == "ok" &&
                     validation.getProperty("schema_validated") == "true" &&
