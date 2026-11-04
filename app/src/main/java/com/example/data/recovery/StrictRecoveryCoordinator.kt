@@ -72,8 +72,15 @@ object StrictRecoveryCoordinator {
         }
 
         return try {
-            val original = appContext.getDatabasePath("budget_tracker_database")
-            val preflight = DatabasePreflightInspector.inspect(original)
+            val sourceFile = when (val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)) {
+                is ActiveDatabaseCopyRegistry.Source.LegacyOriginal -> source.file
+                is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy -> source.file
+                is ActiveDatabaseCopyRegistry.Source.Rejected -> return PreparationResult.Blocked(
+                    source.reasonCode,
+                    "No se pudo identificar de forma segura la última base activa. No se usará una copia anterior."
+                )
+            }
+            val preflight = DatabasePreflightInspector.inspect(sourceFile)
             val hasSupportedV14Header = preflight.schemaVersion == CURRENT_SCHEMA_VERSION &&
                 (
                     preflight.condition == DatabaseCondition.HEADER_RECOGNIZED ||
@@ -87,7 +94,7 @@ object StrictRecoveryCoordinator {
                 )
             }
 
-            val rawSnapshot = when (val copied = DatabaseSnapshotCopier.copyOriginalDatabase(appContext)) {
+            val rawSnapshot = when (val copied = DatabaseSnapshotCopier.copyDatabase(appContext, sourceFile)) {
                 is SnapshotCopyResult.Created -> copied
                 is SnapshotCopyResult.Rejected -> return PreparationResult.Blocked(
                     copied.reasonCode,
@@ -246,6 +253,20 @@ object StrictRecoveryCoordinator {
             ) {
                 pendingAuthorization = null
                 return AuthorizationResult.Rejected("RECOVERY_EVIDENCE_CHANGED_OR_INCOMPLETE")
+            }
+
+            // Persist the active pointer before granting this process access. If the
+            // process dies between these operations, the next launch revalidates this
+            // exact copy instead of reverting to the legacy original.
+            if (!ActiveDatabaseCopyRegistry.registerActivatedCopy(
+                    context = appContext,
+                    snapshotId = pending.snapshotId,
+                    databaseFile = databaseFile,
+                    databaseSha256 = pending.databaseSha256
+                )
+            ) {
+                pendingAuthorization = null
+                return AuthorizationResult.Rejected("ACTIVE_DATABASE_REGISTRY_WRITE_FAILED")
             }
 
             val permit = DatabaseAccessGate.applyEvidence(
