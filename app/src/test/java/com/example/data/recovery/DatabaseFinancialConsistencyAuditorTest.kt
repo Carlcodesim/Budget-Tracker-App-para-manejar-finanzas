@@ -207,7 +207,7 @@ class DatabaseFinancialConsistencyAuditorTest {
                 description TEXT NOT NULL, colorHex TEXT NOT NULL, iconKey TEXT NOT NULL,
                 inventoryValue REAL NOT NULL, createdAt INTEGER NOT NULL)""")
             db.execSQL("CREATE TABLE room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)")
-            db.execSQL("INSERT INTO room_master_table(id, identity_hash) VALUES(42, 'test-room-schema-identity')")
+            db.execSQL("INSERT INTO room_master_table(id, identity_hash) VALUES(42, '86254750241babac4b8d52996a675549')")
             db.version = 14
         } finally {
             db.close()
