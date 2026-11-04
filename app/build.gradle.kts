@@ -63,14 +63,16 @@ android {
   testOptions {
     unitTests {
       isIncludeAndroidResources = true
-      all { testTask ->
-        testTask.testLogging {
-          events("failed", "standardOut", "standardError")
-          showStandardStreams = true
-          exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-        }
-      }
     }
+  }
+}
+
+// Keep recovery-test diagnostics visible in CI, especially fail-closed reason codes.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  testLogging {
+    events("failed", "standardOut", "standardError")
+    showStandardStreams = true
+    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
   }
 }
 
