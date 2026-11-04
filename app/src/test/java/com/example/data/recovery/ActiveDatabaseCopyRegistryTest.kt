@@ -95,6 +95,9 @@ class ActiveDatabaseCopyRegistryTest {
     @Test
     fun corruptRegistryDoesNotFallBackToLegacyOriginal() {
         val recoveryRoot = File(filesRoot, "recovery").apply { mkdirs() }
+        File(recoveryRoot, "active-database-required.marker").writeText(
+            "INSERC_ACTIVE_DATABASE_REQUIRED_1"
+        )
         File(recoveryRoot, "active-database.properties").writeText(
             """
             format=INSERC_ACTIVE_DATABASE_REGISTRY_1
