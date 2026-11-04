@@ -70,6 +70,11 @@ object ActiveDatabaseCopyRegistry {
             if (!registry.isFile || !registry.canRead()) {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_UNREADABLE")
             }
+            if (!requiredMarker.isFile ||
+                requiredMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE
+            ) {
+                return Source.Rejected("ACTIVE_DATABASE_REGISTRY_MARKER_INVALID")
+            }
 
             val properties = Properties().apply {
                 FileInputStream(registry).use(::load)
@@ -170,6 +175,18 @@ object ActiveDatabaseCopyRegistry {
                 return false
             }
 
+            val requiredMarker = File(recoveryRoot, REQUIRED_MARKER_NAME)
+            if (!requiredMarker.exists()) {
+                FileOutputStream(requiredMarker).use { output ->
+                    output.write(REQUIRED_MARKER_VALUE.toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+            } else if (!requiredMarker.isFile ||
+                requiredMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE
+            ) {
+                return false
+            }
+
             val properties = Properties().apply {
                 setProperty("format", FORMAT)
                 setProperty("snapshot_id", snapshotId)
@@ -183,17 +200,6 @@ object ActiveDatabaseCopyRegistry {
                 output.fd.sync()
             }
             Os.rename(temporary.absolutePath, registry.absolutePath)
-            val requiredMarker = File(recoveryRoot, REQUIRED_MARKER_NAME)
-            if (!requiredMarker.exists()) {
-                val markerTemp = File(recoveryRoot, REQUIRED_MARKER_NAME + ".tmp")
-                FileOutputStream(markerTemp).use { output ->
-                    output.write(REQUIRED_MARKER_VALUE.toByteArray(Charsets.UTF_8))
-                    output.fd.sync()
-                }
-                Os.rename(markerTemp.absolutePath, requiredMarker.absolutePath)
-            } else if (requiredMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE) {
-                return false
-            }
             true
         } catch (_: Exception) {
             false
