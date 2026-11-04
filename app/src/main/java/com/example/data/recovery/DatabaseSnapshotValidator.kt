@@ -221,6 +221,11 @@ object DatabaseSnapshotValidator {
         val expectedJournal = File(directory, JOURNAL_NAME).canonicalFile
         val expectedManifest = File(directory, MANIFEST_NAME).canonicalFile
 
+        if (!expectedDatabase.path.startsWith(directory.path + File.separator)) return null
+        if (!expectedManifest.path.startsWith(directory.path + File.separator)) return null
+        if (expectedWal.exists() && !expectedWal.path.startsWith(directory.path + File.separator)) return null
+        if (expectedJournal.exists() && !expectedJournal.path.startsWith(directory.path + File.separator)) return null
+
         if (snapshot.databaseFile.canonicalFile != expectedDatabase) return null
         if (snapshot.manifestFile.canonicalFile != expectedManifest) return null
         if (snapshot.walFile?.canonicalFile != if (expectedWal.isFile) expectedWal else null) return null
