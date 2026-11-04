@@ -84,7 +84,7 @@ class DatabaseFinancialConsistencyAuditorTest {
                 "INSERT INTO recurring_expenses(id, title, amount, categoryId, accountId, dayOfMonth, description, tags, isEnabled, lastExecutedMonth, autoCreate, createdAt, frequency, anchorDate, nextDueDate) VALUES(1, 'Recurrente', 45, 1, 0, 31, NULL, NULL, 1, '2026-13', 0, 1, 'UNKNOWN', 0, 0)"
             )
             writeDb.execSQL(
-                "INSERT INTO businesses(id, name, type, description, colorHex, iconKey, inventoryValue, createdAt) VALUES(2, 'INSERC Store', 'Tecnología y Comercio', 'Negocio comercial principal', '#2563EB', 'storefront', 0, 1700000000003)"
+                "UPDATE businesses SET type = 'Tecnología y Comercio', description = 'Negocio comercial principal', colorHex = '#2563EB', iconKey = 'storefront', inventoryValue = 0 WHERE id = 1"
             )
         } finally {
             writeDb.close()

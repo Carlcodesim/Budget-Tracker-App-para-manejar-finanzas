@@ -92,6 +92,10 @@ class BusinessDefaultMigrationTest {
                 assertEquals("Mi negocio editado", cursor.getString(0))
                 assertEquals(500.0, cursor.getDouble(1), 0.001)
             }
+            db.query("SELECT COUNT(*) FROM businesses WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
             db.query("SELECT description, inventoryValue FROM businesses WHERE id = 4").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals("Negocio comercial principal", cursor.getString(0))

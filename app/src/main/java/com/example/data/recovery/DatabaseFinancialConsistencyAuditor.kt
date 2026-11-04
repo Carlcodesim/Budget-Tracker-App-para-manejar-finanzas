@@ -450,7 +450,7 @@ object DatabaseFinancialConsistencyAuditor {
 
     private fun inspectBusinesses(db: SQLiteDatabase, issues: MutableList<Issue>) {
         db.rawQuery(
-            "SELECT id, name, type, description, colorHex, iconKey, inventoryValue, createdAt FROM businesses",
+            "SELECT id, name, type, description, colorHex, iconKey, inventoryValue FROM businesses",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
