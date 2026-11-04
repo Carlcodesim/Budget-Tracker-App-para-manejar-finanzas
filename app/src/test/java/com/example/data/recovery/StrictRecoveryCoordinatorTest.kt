@@ -73,8 +73,8 @@ class StrictRecoveryCoordinatorTest {
         val secondReady = secondPreparation as StrictRecoveryCoordinator.PreparationResult.ReadyForAuthorization
         assertEquals(3L, secondReady.recordsExamined)
 
-        val secondAuthorization = StrictRecoveryCoordinator.authorizeAfterExplicitUserConfirmation(context)
-        assertTrue("Second authorization should pass: $secondAuthorization",
+        val secondAuthorization = StrictRecoveryCoordinator.restorePreviouslyAuthorizedCopy(context)
+        assertTrue("Previously approved generation should restore after fresh validation: $secondAuthorization",
             secondAuthorization is StrictRecoveryCoordinator.AuthorizationResult.Authorized)
         val secondActiveFile = (secondAuthorization as StrictRecoveryCoordinator.AuthorizationResult.Authorized).databaseFile
         assertTrue(secondActiveFile.canonicalFile != firstActiveFile.canonicalFile)
@@ -127,6 +127,12 @@ class StrictRecoveryCoordinatorTest {
             preparation is StrictRecoveryCoordinator.PreparationResult.ReadyForAuthorization)
         assertFalse("The legacy database location must remain absent", original.exists())
         assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
+
+        val automaticRestore = StrictRecoveryCoordinator.restorePreviouslyAuthorizedCopy(context)
+        assertEquals(
+            StrictRecoveryCoordinator.AuthorizationResult.Rejected("PRIOR_EXPLICIT_AUTHORIZATION_REQUIRED"),
+            automaticRestore
+        )
 
         val authorization = StrictRecoveryCoordinator.authorizeAfterExplicitUserConfirmation(context)
         assertTrue("Fresh database should require and accept explicit confirmation: $authorization",
