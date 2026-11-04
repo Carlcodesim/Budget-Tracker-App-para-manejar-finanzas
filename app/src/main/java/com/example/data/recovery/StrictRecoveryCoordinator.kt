@@ -6,6 +6,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
 import java.util.Properties
+import java.util.UUID
 
 /**
  * Coordinates only the currently certified v14 path:
@@ -72,7 +73,8 @@ object StrictRecoveryCoordinator {
         }
 
         return try {
-            val sourceFile = when (val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)) {
+            val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
+            var sourceFile = when (source) {
                 is ActiveDatabaseCopyRegistry.Source.LegacyOriginal -> source.file
                 is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy -> source.file
                 is ActiveDatabaseCopyRegistry.Source.Rejected -> return PreparationResult.Blocked(
@@ -80,7 +82,25 @@ object StrictRecoveryCoordinator {
                     "No se pudo identificar de forma segura la última base activa. No se usará una copia anterior."
                 )
             }
-            val preflight = DatabasePreflightInspector.inspect(sourceFile)
+
+            var preflight = DatabasePreflightInspector.inspect(sourceFile)
+            var isFreshBootstrap = false
+            if (source is ActiveDatabaseCopyRegistry.Source.LegacyOriginal &&
+                preflight.condition == DatabaseCondition.ABSENT
+            ) {
+                val bootstrapId = UUID.randomUUID().toString()
+                val bootstrapDirectory = File(appContext.filesDir, "recovery/bootstrap/$bootstrapId")
+                val bootstrapDatabase = File(bootstrapDirectory, "database.sqlite")
+                if (!AppDatabase.createFreshDatabaseForRecovery(appContext, bootstrapDatabase)) {
+                    return PreparationResult.Blocked(
+                        "FRESH_DATABASE_BOOTSTRAP_FAILED",
+                        "No se pudo crear una base nueva en el espacio aislado. La ruta original permanece sin crear."
+                    )
+                }
+                sourceFile = bootstrapDatabase
+                isFreshBootstrap = true
+                preflight = DatabasePreflightInspector.inspect(sourceFile)
+            }
             val hasSupportedV14Header = preflight.schemaVersion == CURRENT_SCHEMA_VERSION &&
                 (
                     preflight.condition == DatabaseCondition.HEADER_RECOGNIZED ||
@@ -94,7 +114,12 @@ object StrictRecoveryCoordinator {
                 )
             }
 
-            val rawSnapshot = when (val copied = DatabaseSnapshotCopier.copyDatabase(appContext, sourceFile)) {
+            val copyResult = if (isFreshBootstrap) {
+                DatabaseSnapshotCopier.copyBootstrapDatabase(appContext, sourceFile)
+            } else {
+                DatabaseSnapshotCopier.copyDatabase(appContext, sourceFile)
+            }
+            val rawSnapshot = when (val copied = copyResult) {
                 is SnapshotCopyResult.Created -> copied
                 is SnapshotCopyResult.Rejected -> return PreparationResult.Blocked(
                     copied.reasonCode,
