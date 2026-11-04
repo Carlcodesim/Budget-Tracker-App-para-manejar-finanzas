@@ -16,6 +16,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.BusinessEntity
+import com.example.data.local.entity.AccountEntity
+import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.RecurringExpenseEntity
 import com.example.util.BudgetCycleManager
 
@@ -31,6 +33,9 @@ class BackupManagerSafetyTest {
             .build()
 
         try {
+            db.accountDao().insertAccount(AccountEntity(id = 1, name = "Cash", type = "CASH", initialBalance = 0.0, colorHex = "#4CAF50"))
+            db.categoryDao().insertCategory(CategoryEntity(id = 2, name = "Comida", iconKey = "restaurant", isDefault = true, colorHex = "#EF4444", type = "EXPENSE"))
+
             db.businessDao().insertBusiness(
                 BusinessEntity(
                     id = 77,
@@ -105,6 +110,14 @@ class BackupManagerSafetyTest {
             .build()
         val backup = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("businesses", JSONArray().apply {
                 put(JSONObject().apply {
                     put("id", 1)
@@ -169,6 +182,14 @@ class BackupManagerSafetyTest {
             .build()
         val backup = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("businesses", JSONArray().put(JSONObject().apply {
                 put("id", 1)
                 put("name", "INSERC Store")
@@ -203,6 +224,14 @@ class BackupManagerSafetyTest {
             .build()
         val backup = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("accounts", JSONArray().put(JSONObject().apply {
                 put("id", 1)
                 put("name", "Cash")
@@ -265,6 +294,14 @@ class BackupManagerSafetyTest {
 
         val unsupportedFrequency = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("recurringExpenses", JSONArray().put(JSONObject().apply {
                 put("id", 77)
                 put("title", "Unknown frequency")
@@ -280,10 +317,26 @@ class BackupManagerSafetyTest {
         }.toString()
         val invalidPredictedIncome = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("preferences", JSONObject().put("predictedIncome", -100.0))
         }.toString()
         val unknownCurrency = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("preferences", JSONObject().put("currencyCode", "XYZ"))
         }.toString()
 
@@ -312,6 +365,14 @@ class BackupManagerSafetyTest {
             .build()
         val backup = JSONObject().apply {
             put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
             put("preferences", JSONObject().apply {
                 put("cycleStartDay", 30)
                 put("predictedIncome", 39000.0)
