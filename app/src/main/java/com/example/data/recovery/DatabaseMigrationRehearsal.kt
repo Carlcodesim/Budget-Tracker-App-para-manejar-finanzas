@@ -8,6 +8,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.Properties
 import java.util.UUID
@@ -79,7 +80,8 @@ object DatabaseMigrationRehearsal {
                 "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT",
                 "ROLLBACK_JOURNAL_PRESENT"
             )
-            if (preflight.schemaVersion !in 9..13 ||
+            val sourceVersion = preflight.schemaVersion
+            if (sourceVersion == null || sourceVersion !in 9..13 ||
                 (preflight.condition != DatabaseCondition.LEGACY_MIGRATION_CANDIDATE && !sidecarSnapshot)
             ) {
                 return Result.Rejected("LEGACY_SCHEMA_NOT_ELIGIBLE_FOR_REHEARSAL")
@@ -194,7 +196,7 @@ object DatabaseMigrationRehearsal {
                 setProperty("format", REPORT_FORMAT)
                 setProperty("snapshot_id", snapshot.snapshotId)
                 setProperty("workspace_id", created.name)
-                setProperty("source_schema_version", preflight.schemaVersion.toString())
+                setProperty("source_schema_version", sourceVersion.toString())
                 setProperty("migrated_schema_version", CURRENT_SCHEMA_VERSION.toString())
                 setProperty("raw_database_sha256", raw.databaseHash)
                 raw.walHash?.let { setProperty("raw_wal_sha256", it) }
@@ -224,7 +226,7 @@ object DatabaseMigrationRehearsal {
             Result.Completed(
                 Migrated(
                     snapshotId = snapshot.snapshotId,
-                    sourceSchemaVersion = preflight.schemaVersion,
+                    sourceSchemaVersion = sourceVersion,
                     workspaceDirectory = created,
                     databaseFile = migratedDatabase,
                     reportFile = reportFile,
