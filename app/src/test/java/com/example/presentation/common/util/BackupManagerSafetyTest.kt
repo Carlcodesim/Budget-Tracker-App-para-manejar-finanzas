@@ -257,6 +257,54 @@ class BackupManagerSafetyTest {
 
 
     @Test
+    fun importRejectsValuesThatWouldOtherwiseBeSilentlyCoerced() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+
+        val unsupportedFrequency = JSONObject().apply {
+            put("version", 1)
+            put("recurringExpenses", JSONArray().put(JSONObject().apply {
+                put("id", 77)
+                put("title", "Unknown frequency")
+                put("amount", 25.0)
+                put("categoryId", 1)
+                put("accountId", 1)
+                put("dayOfMonth", 15)
+                put("isEnabled", true)
+                put("autoCreate", false)
+                put("createdAt", 1700000000000L)
+                put("frequency", "EVERY_TEN_DAYS")
+            }))
+        }.toString()
+        val invalidPredictedIncome = JSONObject().apply {
+            put("version", 1)
+            put("preferences", JSONObject().put("predictedIncome", -100.0))
+        }.toString()
+        val unknownCurrency = JSONObject().apply {
+            put("version", 1)
+            put("preferences", JSONObject().put("currencyCode", "XYZ"))
+        }.toString()
+
+        try {
+            listOf(unsupportedFrequency, invalidPredictedIncome, unknownCurrency).forEach { payload ->
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking { BackupManager.importBackupFromJson(context, db, payload) }
+                }
+            }
+            val readable = db.openHelper.readableDatabase
+            readable.query("SELECT COUNT(*) FROM recurring_expenses").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+
+    @Test
     fun importRestoresCyclePreferencesWhenPresent() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)

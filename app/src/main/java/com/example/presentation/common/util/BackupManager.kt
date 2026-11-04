@@ -314,7 +314,13 @@ object BackupManager {
             requiredInteger(record, "createdAt", path)
             // Old version-1 backups predate configurable frequencies and intentionally
             // retain the MONTHLY / zero-date compatibility defaults.
-            optionalString(record, "frequency", path)
+            if (record.has("frequency") && !record.isNull("frequency")) {
+                val frequency = requiredString(record, "frequency", path)
+                val supportedFrequencies = setOf("WEEKLY", "BIWEEKLY", "MONTHLY", "YEARLY")
+                if (frequency !in supportedFrequencies) {
+                    throw IllegalArgumentException("El campo $path.frequency contiene una frecuencia no compatible.")
+                }
+            }
             optionalInteger(record, "anchorDate", path)
             optionalInteger(record, "nextDueDate", path)
         }
@@ -337,8 +343,27 @@ object BackupManager {
                     throw IllegalArgumentException("backup.preferences.cycleStartDay debe estar entre 1 y 31.")
                 }
             }
-            optionalNumber(preferences, "predictedIncome", "preferences")
-            optionalString(preferences, "currencyCode", "preferences")
+            if (preferences.has("predictedIncome") && !preferences.isNull("predictedIncome")) {
+                val predictedIncome = requiredNumber(
+                    preferences, "predictedIncome", "preferences"
+                ).toDouble()
+                val storedIncome = predictedIncome.toFloat()
+                if (predictedIncome <= 0.0 || !storedIncome.isFinite() ||
+                    storedIncome.toDouble() != predictedIncome
+                ) {
+                    throw IllegalArgumentException(
+                        "backup.preferences.predictedIncome no puede conservarse exactamente como preferencia financiera."
+                    )
+                }
+            }
+            if (preferences.has("currencyCode") && !preferences.isNull("currencyCode")) {
+                val currencyCode = requiredString(preferences, "currencyCode", "preferences")
+                if (CurrencyFormatter.availableCurrencies.none { it.code == currencyCode }) {
+                    throw IllegalArgumentException(
+                        "backup.preferences.currencyCode no corresponde a una moneda compatible."
+                    )
+                }
+            }
         }
     }
 
