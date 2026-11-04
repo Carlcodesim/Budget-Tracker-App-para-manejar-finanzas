@@ -180,7 +180,7 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - This is a raw copy mechanism, not a complete recovery/snapshot certification protocol. It does not yet provide a durable snapshot journal, disk-full fault injection, process-death recovery, isolated SQLite integrity checks, WAL/journal recovery validation, or proof of system-wide quiescence. It is not called automatically and must not be treated as an authorized active database.
 
 
-### Stage 2B — Isolated SQLite and Room-schema validation (implemented; latest-head CI pending)
+### Stage 2B — Isolated SQLite and Room-schema validation (implemented; CI verified for source commit 0330353)
 
 - Added `DatabaseSnapshotValidator.kt`. It first verifies the raw snapshot manifest, snapshot ID, expected file locations, SHA-256 hashes, byte sizes and sidecar metadata.
 - It rejects symlinked snapshot components and any SHM file inside the raw snapshot. The copier's contract is to record SHM presence but not copy the transient SHM index.
@@ -194,7 +194,7 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - The validation workspace is not automatically selected as the active DB. No production code grants `DatabaseAccessGate` permission from this report.
 
 
-### Stage 2C — Read-only financial/business consistency scan (implemented; latest-head CI pending)
+### Stage 2C — Read-only financial/business consistency scan (implemented; CI verified for source commit 0330353)
 
 - Added `DatabaseFinancialConsistencyAuditor.kt`. It only accepts a `SnapshotValidationResult.Validated` whose validation report matches the snapshot/workspace identifiers, schema version 14, successful SQLite and schema checks, and a SHA-256 hash that still matches the validated database.
 - The auditor enforces app-private workspace paths, rejects symlinked inputs, refuses if normal Room access is enabled, and opens the validated workspace using `SQLiteDatabase.OPEN_READONLY`. It never opens the original DB or raw snapshot.
@@ -207,7 +207,7 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - **Scope boundary:** a completed scan means the defined consistency checks ran; it is not a guarantee that all user-specific business rules are correct. Findings require human review and the scan does not fix data. The production recovery coordinator now invokes this auditor after structural validation; only a zero-finding report can proceed to a separate explicit-authorization step. The auditor itself never grants access.
 
 
-### Stage 3A — Strict recovery coordinator and explicit activation (implemented; latest-head CI pending)
+### Stage 3A — Strict recovery coordinator and explicit activation (implemented; CI verified for source commit 0330353)
 
 - Added `StrictRecoveryCoordinator` to orchestrate read-only preflight, raw snapshot, isolated SQLite/Room validation, and financial consistency scan. A structurally and financially clean v14 database may reach the explicit confirmation stage. Supported legacy v9-v13 databases first require a separate migration rehearsal on a disposable second-generation copy (Stage 3B).
 - Any finding from the financial audit stops activation and returns a manual-review result. Damaged, unknown, future and unsupported legacy versions remain blocked. Migration is never run against the original database or immutable raw snapshot; only the isolated rehearsal copy is changed.
@@ -233,5 +233,6 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 ### Current release boundary / not yet a merge approval
 
 - The coordinator supports the exact current schema v14 and attempts a disposable migration rehearsal for versions 9–13. Versions 1–8, future versions, unknown schemas, malformed sidecars and all failed or inconsistent evidence remain quarantined. The v13→14 migration now removes only the deterministic placeholder inserted by the known 11→12 migration (including its fixed timestamp). An older onOpen-created lookalike with a variable timestamp is preserved and classified for human review because its ownership cannot be established safely. Do not treat this branch as compatible with every historical database.
-- CI has passed for the preceding revisions that introduced v9–v13 synthetic migration tests. The latest change that moves the durable active-copy marker outside `recovery/` is still awaiting its own latest-head unit-test and debug-APK workflow. The branch must not be merged until the exact latest-head workflow passes.
+- Application-source commit `03303538df63e3b079b1d1e17f7467f58aa182e6` passed both the branch-push workflow (run `41769542821`) and the pull-request workflow (run `41770147530`), each with `testDebugUnitTest`, `assembleDebug` and artifact upload successful. Any subsequent commit must pass CI on its exact head before merge.
+- Device-level upgrade checks and authentic historical database fixtures remain outstanding. These are not covered by Robolectric/unit CI and must be completed before the draft can be marked ready for merge.
 - A final review must inspect the full branch delta (including recurring-expense, backup/import and UI changes), every direct database entry point and background component, Room migration coverage, first-install/restore behavior, and Android backup behavior. The branch is not merged and `main` remains untouched.
