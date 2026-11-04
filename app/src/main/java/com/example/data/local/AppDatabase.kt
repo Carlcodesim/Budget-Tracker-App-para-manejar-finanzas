@@ -1,9 +1,11 @@
 package com.example.data.local
 
 import android.content.Context
+import java.io.File
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.local.dao.CategoryDao
@@ -20,6 +22,7 @@ import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.BusinessEntity
 import com.example.data.local.entity.RecurringExpenseEntity
+import com.example.data.recovery.DatabaseAccessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,8 +40,8 @@ import kotlinx.coroutines.launch
         RecurringExpenseEntity::class,
         BusinessEntity::class
     ],
-    version = 12,
-    exportSchema = false
+    version = 14,
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
@@ -53,6 +56,15 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+
+        @Volatile
+        private var INSTANCE_PATH: String? = null
+
+        /**
+         * True once Room has been constructed in this process. Snapshot creation
+         * must not race or overlap with a live Room instance.
+         */
+        fun hasInstance(): Boolean = INSTANCE != null
 
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -96,21 +108,121 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE recurring_expenses ADD COLUMN frequency TEXT NOT NULL DEFAULT 'MONTHLY'")
+                db.execSQL("ALTER TABLE recurring_expenses ADD COLUMN anchorDate INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE recurring_expenses ADD COLUMN nextDueDate INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Remove only the untouched built-in placeholder inserted by older app versions.
+                // Any renamed, edited, or user-created business is preserved.
+                db.execSQL("""
+                    DELETE FROM businesses
+                    WHERE id = 1
+                      AND name = 'INSERC Store'
+                      AND type = 'Tecnología y Comercio'
+                      AND description = 'Negocio principal de servicios y venta comercial'
+                      AND colorHex = '#2563EB'
+                      AND iconKey = 'storefront'
+                      AND inventoryValue = 0.0
+                      AND createdAt = 1704067200000
+                """.trimIndent())
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
+            // This check must run before consulting a cached instance or constructing Room.
+            // Room must never create/open the original path before strict authorization.
+            val authorizedFile = DatabaseAccessGate.requireAuthorizedDatabaseFile(context.applicationContext)
+            val authorizedPath = authorizedFile.absolutePath
+            INSTANCE?.let { existing ->
+                check(INSTANCE_PATH == authorizedPath) {
+                    "A different database generation is already open; close and quiesce it before switching"
+                }
+                return existing
+            }
+            return synchronized(this) {
+                DatabaseAccessGate.requireNormalAccess()
+                val currentAuthorizedFile = DatabaseAccessGate.requireAuthorizedDatabaseFile(context.applicationContext)
+                check(currentAuthorizedFile.absolutePath == authorizedPath) {
+                    "Authorized database changed during Room acquisition"
+                }
+                INSTANCE?.let { existing ->
+                    check(INSTANCE_PATH == authorizedPath) {
+                        "A different database generation is already open; close and quiesce it before switching"
+                    }
+                    return@synchronized existing
+                }
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "budget_tracker_database"
+                    authorizedPath
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
-                    .fallbackToDestructiveMigration(true)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    // Deliberately do not use fallbackToDestructiveMigration: if a migration path is
+                    // missing, Room must fail rather than silently erase financial records.
+                    // Legacy-version recovery UX and migration coverage must be validated separately.
                     .addCallback(AppDatabaseCallback(scope))
                     .build()
                 INSTANCE = instance
+                INSTANCE_PATH = authorizedPath
                 instance
             }
         }
+        /**
+         * Creates a brand-new schema only inside a unique private bootstrap workspace.
+         * This is permitted solely when no legacy database or registered active copy exists.
+         * It never creates or replaces the legacy database path.
+         */
+        internal fun createFreshDatabaseForRecovery(context: Context, databaseFile: File): Boolean {
+            if (hasInstance() || DatabaseAccessGate.isNormalAccessAllowed()) return false
+            return try {
+                val filesRoot = context.applicationContext.filesDir.canonicalFile
+                val bootstrapRootRaw = File(filesRoot, "recovery/bootstrap")
+                val workspaceRaw = databaseFile.parentFile ?: return false
+                if (java.nio.file.Files.isSymbolicLink(bootstrapRootRaw.toPath()) ||
+                    java.nio.file.Files.isSymbolicLink(workspaceRaw.toPath()) ||
+                    java.nio.file.Files.isSymbolicLink(databaseFile.toPath())
+                ) return false
+
+                val bootstrapRoot = bootstrapRootRaw.canonicalFile
+                val workspace = workspaceRaw.canonicalFile
+                val candidate = databaseFile.canonicalFile
+                if (!workspace.path.startsWith(bootstrapRoot.path + File.separator) ||
+                    !workspace.name.matches(Regex("^[0-9a-fA-F-]{36}$")) ||
+                    candidate.parentFile != workspace ||
+                    candidate.name != "database.sqlite" ||
+                    candidate.exists()
+                ) return false
+                if (!workspace.exists() && !workspace.mkdirs()) return false
+
+                val database = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    candidate.absolutePath
+                ).build()
+                try {
+                    // Recovery workspaces must start with zero user records. The backup
+                    // importer owns the complete dataset; seeding defaults here would
+                    // create phantom accounts/categories or collide with restored IDs.
+                    database.openHelper.writableDatabase
+                } finally {
+                    database.close()
+                }
+                candidate.isFile && candidate.length() > 0L
+            } catch (_: Exception) {
+                databaseFile.delete()
+                File(databaseFile.path + "-wal").delete()
+                File(databaseFile.path + "-shm").delete()
+                File(databaseFile.path + "-journal").delete()
+                false
+            }
+        }
+
     }
 
     private class AppDatabaseCallback(
@@ -121,90 +233,9 @@ abstract class AppDatabase : RoomDatabase() {
             INSTANCE?.let { database ->
                 scope.launch(Dispatchers.IO) {
                     populateDefaultCategories(database.categoryDao())
-                    populateDefaultReminders(database.reminderDao())
                     populateDefaultAccounts(database.accountDao())
-                    populateDefaultRecurringExpenses(database.recurringExpenseDao())
-                    populateDefaultBusinesses(database.businessDao())
                 }
             }
-        }
-
-        override fun onOpen(db: SupportSQLiteDatabase) {
-            super.onOpen(db)
-            INSTANCE?.let { database ->
-                scope.launch(Dispatchers.IO) {
-                    if (database.businessDao().getBusinessCount() == 0) {
-                        populateDefaultBusinesses(database.businessDao())
-                    }
-                }
-            }
-        }
-
-        private suspend fun populateDefaultBusinesses(businessDao: BusinessDao) {
-            if (businessDao.getBusinessCount() == 0) {
-                businessDao.insertBusiness(
-                    BusinessEntity(
-                        id = 1,
-                        name = "INSERC Store",
-                        type = "Tecnología y Comercio",
-                        description = "Negocio comercial principal",
-                        colorHex = "#2563EB",
-                        iconKey = "storefront",
-                        inventoryValue = 0.0,
-                        createdAt = System.currentTimeMillis()
-                    )
-                )
-            }
-        }
-
-        private suspend fun populateDefaultRecurringExpenses(recurringExpenseDao: RecurringExpenseDao) {
-            val defaultRecurringExpenses = listOf(
-                RecurringExpenseEntity(
-                    id = 1,
-                    title = "Netflix",
-                    amount = 599.0,
-                    categoryId = 4, // Ocio
-                    accountId = 3, // Tarjeta de débito
-                    dayOfMonth = 15,
-                    description = "Suscripción Premium 4K",
-                    isEnabled = true,
-                    autoCreate = true
-                ),
-                RecurringExpenseEntity(
-                    id = 2,
-                    title = "Internet Fibra Óptica",
-                    amount = 2200.0,
-                    categoryId = 7, // Servicios
-                    accountId = 2, // Cuenta bancaria
-                    dayOfMonth = 20,
-                    description = "Plan hogar 300 Mbps",
-                    isEnabled = true,
-                    autoCreate = true
-                ),
-                RecurringExpenseEntity(
-                    id = 3,
-                    title = "Gimnasio",
-                    amount = 1500.0,
-                    categoryId = 5, // Salud
-                    accountId = 3, // Tarjeta de débito
-                    dayOfMonth = 5,
-                    description = "Membresía mensual fitness",
-                    isEnabled = true,
-                    autoCreate = true
-                ),
-                RecurringExpenseEntity(
-                    id = 4,
-                    title = "Alquiler / Mantenimiento",
-                    amount = 15000.0,
-                    categoryId = 7, // Servicios
-                    accountId = 2, // Cuenta bancaria
-                    dayOfMonth = 1,
-                    description = "Pago mensual de vivienda",
-                    isEnabled = true,
-                    autoCreate = true
-                )
-            )
-            recurringExpenseDao.insertRecurringExpenses(defaultRecurringExpenses)
         }
 
         private suspend fun populateDefaultCategories(categoryDao: CategoryDao) {
@@ -223,75 +254,34 @@ abstract class AppDatabase : RoomDatabase() {
             categoryDao.insertCategories(defaultCategories)
         }
 
-        private suspend fun populateDefaultReminders(reminderDao: ReminderDao) {
-            val defaultReminders = listOf(
-                ReminderEntity(
-                    id = 1,
-                    type = "REGISTRO_GASTOS",
-                    title = "Registrar gastos diarios",
-                    description = "Registra tus consumos de hoy para mantener tu presupuesto al día.",
-                    isEnabled = true,
-                    time = "20:00"
-                ),
-                ReminderEntity(
-                    id = 2,
-                    type = "PAGO_UNIVERSIDAD",
-                    title = "Pago de universidad",
-                    description = "Cuota mensual para cubrir tu carrera profesional.",
-                    isEnabled = true,
-                    amount = 9500.0,
-                    dueDateDay = 28
-                ),
-                ReminderEntity(
-                    id = 3,
-                    type = "PAGO_SERVICIOS",
-                    title = "Pago de servicios públicos",
-                    description = "Electricidad, internet y agua potable.",
-                    isEnabled = true,
-                    amount = 3200.0,
-                    dueDateDay = 15
-                ),
-                ReminderEntity(
-                    id = 4,
-                    type = "META_AHORRO",
-                    title = "Aporte a meta de ahorro",
-                    description = "Recuerda separar fondos para tus metas personales.",
-                    isEnabled = true,
-                    amount = 1500.0,
-                    dueDateDay = 5
-                )
-            )
-            reminderDao.insertReminders(defaultReminders)
-        }
-
         private suspend fun populateDefaultAccounts(accountDao: AccountDao) {
             val defaultAccounts = listOf(
                 AccountEntity(
                     id = 1,
                     name = "Efectivo",
                     type = "CASH",
-                    initialBalance = 5000.0,
+                    initialBalance = 0.0,
                     colorHex = "#4CAF50" // Verde
                 ),
                 AccountEntity(
                     id = 2,
                     name = "Cuenta bancaria",
                     type = "BANK",
-                    initialBalance = 45000.0,
+                    initialBalance = 0.0,
                     colorHex = "#2196F3" // Azul
                 ),
                 AccountEntity(
                     id = 3,
                     name = "Tarjeta de débito",
                     type = "DEBIT",
-                    initialBalance = 1500.0, // Un saldo inicial de demostración
+                    initialBalance = 0.0,
                     colorHex = "#9C27B0" // Morado
                 ),
                 AccountEntity(
                     id = 4,
                     name = "Tarjeta de crédito",
                     type = "CREDIT",
-                    initialBalance = 12000.0, // Límite de demostración
+                    initialBalance = 0.0,
                     colorHex = "#FF9800" // Naranja
                 )
             )

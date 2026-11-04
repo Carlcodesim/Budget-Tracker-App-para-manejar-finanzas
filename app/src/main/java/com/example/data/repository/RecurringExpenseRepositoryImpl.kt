@@ -1,5 +1,7 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
+import com.example.data.local.AppDatabase
 import com.example.data.local.dao.AccountDao
 import com.example.data.local.dao.CategoryDao
 import com.example.data.local.dao.RecurringExpenseDao
@@ -11,6 +13,8 @@ import com.example.domain.model.Account
 import com.example.domain.model.Category
 import com.example.domain.model.ProcessRecurringResult
 import com.example.domain.model.RecurringExpense
+import com.example.domain.model.RecurrenceFrequency
+import com.example.domain.model.calculateNextDueDate
 import com.example.domain.model.Transaction
 import com.example.domain.model.TransactionType
 import com.example.domain.repository.RecurringExpenseRepository
@@ -25,6 +29,7 @@ import java.util.Locale
  * Maneja la persistencia y la generación automática de transacciones programadas mensuales.
  */
 class RecurringExpenseRepositoryImpl(
+    private val database: AppDatabase,
     private val recurringExpenseDao: RecurringExpenseDao,
     private val categoryDao: CategoryDao,
     private val accountDao: AccountDao,
@@ -37,8 +42,25 @@ class RecurringExpenseRepositoryImpl(
             categoryDao.getAllCategories(),
             accountDao.getAllAccounts()
         ) { expenses, categories, accounts ->
-            val categoryMap = categories.associateBy { it.id }
-            val accountMap = accounts.associateBy { it.id }
+            Triple(expenses, categories.associateBy { it.id }, accounts.associateBy { it.id })
+        }.combine(transactionDao.getRecurringExpenseTransactions()) { source, recurringTransactions ->
+            val (expenses, categoryMap, accountMap) = source
+            val now = Calendar.getInstance()
+            val monthStart = (now.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val nextMonthStart = (now.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
 
             expenses.map { entity ->
                 val categoryDomain = categoryMap[entity.categoryId]?.toDomain() ?: Category(
@@ -48,7 +70,17 @@ class RecurringExpenseRepositoryImpl(
                     isDefault = true
                 )
                 val accountDomain = accountMap[entity.accountId]?.toDomain()
-                entity.toDomain(categoryDomain, accountDomain)
+                val linkedTransactions = recurringTransactions.filter {
+                    it.tags?.contains(recurringTransactionTag(entity.id)) == true
+                }
+                val paymentsThisMonth = linkedTransactions.filter {
+                    it.date >= monthStart && it.date < nextMonthStart
+                }
+                entity.toDomain(categoryDomain, accountDomain).copy(
+                    lastExecutedAmount = linkedTransactions.firstOrNull()?.amount,
+                    amountPaidThisMonth = paymentsThisMonth.sumOf { it.amount },
+                    paymentCountThisMonth = paymentsThisMonth.size
+                )
             }
         }
     }
@@ -85,83 +117,68 @@ class RecurringExpenseRepositoryImpl(
         targetYearMonth: String?,
         forceAllDue: Boolean
     ): ProcessRecurringResult {
-        val nowCal = Calendar.getInstance()
-        val currentYear = nowCal.get(Calendar.YEAR)
-        val currentMonth = nowCal.get(Calendar.MONTH) + 1 // 1-based (1..12)
-        val currentDay = nowCal.get(Calendar.DAY_OF_MONTH)
-
-        val yearMonthKey = targetYearMonth ?: String.format(Locale.US, "%04d-%02d", currentYear, currentMonth)
-
+        val nowMillis = System.currentTimeMillis()
+        val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val currentYearMonth = String.format(
+            Locale.US,
+            "%04d-%02d",
+            now.get(Calendar.YEAR),
+            now.get(Calendar.MONTH) + 1
+        )
         val activeExpenses = recurringExpenseDao.getActiveRecurringExpensesSync()
         val categories = categoryDao.getAllCategoriesSync().associateBy { it.id }
         val createdTransactions = mutableListOf<Transaction>()
         var totalAmount = 0.0
 
         for (expense in activeExpenses) {
-            // Verificar si aplica auto-creación y si no ha sido ejecutado ya este mes
-            if (!expense.isEnabled) continue
-            if (expense.lastExecutedMonth == yearMonthKey) continue
+            if (!expense.isEnabled || !expense.autoCreate) continue
 
-            val isDue = forceAllDue || (expense.autoCreate && currentDay >= expense.dayOfMonth)
+            // The bulk action never bypasses the due date or the user's automation preference.
+            val dueDate = resolveNextDueDate(expense, nowMillis)
+            if (dueDate > nowMillis) continue
+            val nextDueDate = nextFutureDueDate(expense, dueDate, nowMillis)
 
-            if (isDue) {
-                // Calcular fecha programada
-                val maxDayInMonth = nowCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                val targetDay = expense.dayOfMonth.coerceIn(1, maxDayInMonth)
+            val descriptionText = buildString {
+                append("[Gasto Recurrente] ")
+                append(expense.title)
+                if (!expense.description.isNullOrBlank()) append(" - ${expense.description}")
+            }
+            val transactionEntity = TransactionEntity(
+                amount = expense.amount,
+                type = "EXPENSE",
+                categoryId = expense.categoryId,
+                accountId = expense.accountId,
+                description = descriptionText,
+                date = dueDate,
+                tags = "RECURRING,AUTO_GENERATED,${recurringTransactionTag(expense.id)}"
+            )
+            val newId = insertRecurringTransactionOnce(
+                expenseId = expense.id,
+                expectedStoredNextDueDate = expense.nextDueDate,
+                yearMonth = currentYearMonth,
+                nextDueDate = nextDueDate,
+                transaction = transactionEntity
+            ) ?: continue
 
-                val scheduledCal = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, currentYear)
-                    set(Calendar.MONTH, currentMonth - 1)
-                    set(Calendar.DAY_OF_MONTH, targetDay)
-                    set(Calendar.HOUR_OF_DAY, 8)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-
-                val descriptionText = buildString {
-                    append("[Gasto Recurrente] ")
-                    append(expense.title)
-                    if (!expense.description.isNullOrBlank()) {
-                        append(" - ")
-                        append(expense.description)
-                    }
-                }
-
-                val transactionEntity = TransactionEntity(
-                    amount = expense.amount,
-                    type = "EXPENSE",
-                    categoryId = expense.categoryId,
-                    accountId = expense.accountId,
-                    description = descriptionText,
-                    date = scheduledCal.timeInMillis,
-                    tags = "RECURRING,AUTO_GENERATED"
-                )
-
-                val newId = transactionDao.insertTransaction(transactionEntity)
-                recurringExpenseDao.updateLastExecutedMonth(expense.id, yearMonthKey)
-
-                val catDomain = categories[expense.categoryId]?.toDomain() ?: Category(
-                    id = expense.categoryId,
-                    name = "Otros",
-                    iconKey = "category",
-                    isDefault = true
-                )
-
-                val createdTx = Transaction(
+            val category = categories[expense.categoryId]?.toDomain() ?: Category(
+                id = expense.categoryId,
+                name = "Otros",
+                iconKey = "category",
+                isDefault = true
+            )
+            createdTransactions.add(
+                Transaction(
                     id = newId,
                     amount = expense.amount,
                     type = TransactionType.EXPENSE,
-                    category = catDomain,
+                    category = category,
                     description = descriptionText,
-                    date = Date(scheduledCal.timeInMillis),
+                    date = Date(dueDate),
                     accountId = expense.accountId,
                     tags = "RECURRING,AUTO_GENERATED"
                 )
-
-                createdTransactions.add(createdTx)
-                totalAmount += expense.amount
-            }
+            )
+            totalAmount += expense.amount
         }
 
         return ProcessRecurringResult(
@@ -171,34 +188,121 @@ class RecurringExpenseRepositoryImpl(
         )
     }
 
-    override suspend fun executeSingleRecurringExpenseNow(id: Long): Boolean {
+    override suspend fun executeSingleRecurringExpenseNow(id: Long, paidAmount: Double): Boolean {
+        require(paidAmount > 0.0 && paidAmount.isFinite()) {
+            "El importe pagado debe ser un número válido mayor que cero."
+        }
         val expense = recurringExpenseDao.getRecurringExpenseById(id) ?: return false
-        val nowCal = Calendar.getInstance()
-        val currentYear = nowCal.get(Calendar.YEAR)
-        val currentMonth = nowCal.get(Calendar.MONTH) + 1
-        val yearMonthKey = String.format(Locale.US, "%04d-%02d", currentYear, currentMonth)
+        if (!expense.isEnabled) return false
 
+        val nowMillis = System.currentTimeMillis()
+        val dueDate = resolveNextDueDate(expense, nowMillis)
+        // Manual registration applies only to the current occurrence once its date arrives.
+        if (dueDate > nowMillis) return false
+
+        val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val currentYearMonth = String.format(
+            Locale.US,
+            "%04d-%02d",
+            now.get(Calendar.YEAR),
+            now.get(Calendar.MONTH) + 1
+        )
+        val nextDueDate = nextFutureDueDate(expense, dueDate, nowMillis)
         val descriptionText = buildString {
             append("[Gasto Recurrente] ")
             append(expense.title)
-            if (!expense.description.isNullOrBlank()) {
-                append(" - ")
-                append(expense.description)
-            }
+            if (!expense.description.isNullOrBlank()) append(" - ${expense.description}")
         }
-
         val transactionEntity = TransactionEntity(
-            amount = expense.amount,
+            amount = paidAmount,
             type = "EXPENSE",
             categoryId = expense.categoryId,
             accountId = expense.accountId,
             description = descriptionText,
-            date = System.currentTimeMillis(),
-            tags = "RECURRING,MANUAL_TRIGGER"
+            date = nowMillis,
+            tags = "RECURRING,MANUAL_TRIGGER,${recurringTransactionTag(expense.id)}"
         )
+        return insertRecurringTransactionOnce(
+            expenseId = expense.id,
+            expectedStoredNextDueDate = expense.nextDueDate,
+            yearMonth = currentYearMonth,
+            nextDueDate = nextDueDate,
+            transaction = transactionEntity
+        ) != null
+    }
 
-        transactionDao.insertTransaction(transactionEntity)
-        recurringExpenseDao.updateLastExecutedMonth(expense.id, yearMonthKey)
-        return true
+    private fun recurringTransactionTag(expenseId: Long): String =
+        "RECURRING_EXPENSE_ID=$expenseId;"
+
+    private fun resolveNextDueDate(
+        expense: com.example.data.local.entity.RecurringExpenseEntity,
+        nowMillis: Long
+    ): Long {
+        if (expense.nextDueDate > 0L) return expense.nextDueDate
+
+        val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val currentYearMonth = String.format(
+            Locale.US,
+            "%04d-%02d",
+            now.get(Calendar.YEAR),
+            now.get(Calendar.MONTH) + 1
+        )
+        val due = (now.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            set(Calendar.DAY_OF_MONTH, expense.dayOfMonth.coerceIn(1, getActualMaximum(Calendar.DAY_OF_MONTH)))
+        }
+        val todayStart = (now.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        if (expense.lastExecutedMonth == currentYearMonth || due.before(todayStart)) {
+            due.add(Calendar.MONTH, 1)
+            due.set(Calendar.DAY_OF_MONTH, expense.dayOfMonth.coerceIn(1, due.getActualMaximum(Calendar.DAY_OF_MONTH)))
+        }
+        return due.timeInMillis
+    }
+
+    private fun nextFutureDueDate(
+        expense: com.example.data.local.entity.RecurringExpenseEntity,
+        currentDueDate: Long,
+        nowMillis: Long
+    ): Long {
+        val frequency = RecurrenceFrequency.fromStorage(expense.frequency)
+        val anchorDate = expense.anchorDate.takeIf { it > 0L } ?: currentDueDate
+        var nextDueDate = calculateNextDueDate(currentDueDate, frequency, anchorDate)
+        var safetyCounter = 0
+        while (nextDueDate <= nowMillis && safetyCounter < 10000) {
+            nextDueDate = calculateNextDueDate(nextDueDate, frequency, anchorDate)
+            safetyCounter++
+        }
+        return nextDueDate
+    }
+
+    private suspend fun insertRecurringTransactionOnce(
+        expenseId: Long,
+        expectedStoredNextDueDate: Long,
+        yearMonth: String,
+        nextDueDate: Long,
+        transaction: TransactionEntity
+    ): Long? = database.withTransaction {
+        val currentExpense = recurringExpenseDao.getRecurringExpenseById(expenseId)
+            ?: return@withTransaction null
+
+        if (currentExpense.nextDueDate != expectedStoredNextDueDate) {
+            return@withTransaction null
+        }
+        if (expectedStoredNextDueDate == 0L && currentExpense.lastExecutedMonth == yearMonth) {
+            return@withTransaction null
+        }
+
+        val transactionId = transactionDao.insertTransaction(transaction)
+        recurringExpenseDao.updateLastExecution(expenseId, yearMonth, nextDueDate)
+        transactionId
     }
 }

@@ -108,6 +108,18 @@ class TransactionsViewModel(
         initialValue = TransactionsUiState(isLoading = true)
     )
 
+    init {
+        viewModelScope.launch {
+            com.example.util.BudgetCycleManager.startDayFlow.collect {
+                when (_filterState.value.timePreset) {
+                    TimeRangePreset.THIS_MONTH -> onTimePresetSelected(TimeRangePreset.THIS_MONTH)
+                    TimeRangePreset.LAST_MONTH -> onTimePresetSelected(TimeRangePreset.LAST_MONTH)
+                    else -> Unit
+                }
+            }
+        }
+    }
+
     private fun filterAndSortTransactions(
         transactions: List<Transaction>,
         filters: FilterParams

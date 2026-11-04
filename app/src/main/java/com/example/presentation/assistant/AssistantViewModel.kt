@@ -74,6 +74,12 @@ class AssistantViewModel(
                 calculateFinancialHealthReportLocal()
             }
         }
+        viewModelScope.launch {
+            com.example.util.BudgetCycleManager.startDayFlow.collect {
+                calculateForecastAndAnomaliesLocal()
+                calculateFinancialHealthReportLocal()
+            }
+        }
     }
 
     fun onTabSelected(tab: AssistantTab) {
@@ -308,13 +314,13 @@ class AssistantViewModel(
         val prevMonthEnd = prevCycle.endDateMillis
 
         val currentMonthExpenses = currentTransactions.filter {
-            it.type == TransactionType.EXPENSE && it.date.time in currentMonthStart until currentMonthEnd
+            it.type == TransactionType.EXPENSE && it.date.time in currentMonthStart..currentMonthEnd
         }
         val prevMonthExpenses = currentTransactions.filter {
-            it.type == TransactionType.EXPENSE && it.date.time in prevMonthStart until prevMonthEnd
+            it.type == TransactionType.EXPENSE && it.date.time in prevMonthStart..prevMonthEnd
         }
         val currentMonthIncomes = currentTransactions.filter {
-            it.type == TransactionType.INCOME && it.date.time in currentMonthStart until currentMonthEnd
+            it.type == TransactionType.INCOME && it.date.time in currentMonthStart..currentMonthEnd
         }
 
         val currentTotalSpent = currentMonthExpenses.sumOf { it.amount }
@@ -895,21 +901,18 @@ class AssistantViewModel(
     private fun calculateFinancialHealthReportLocal() {
         val totalLiquid = currentAccounts.sumOf { it.currentBalance }.coerceAtLeast(0.0)
 
-        val cal = Calendar.getInstance()
-        val currentMonth = cal.get(Calendar.MONTH)
-        val currentYear = cal.get(Calendar.YEAR)
-
-        val currentMonthTransactions = currentTransactions.filter {
-            val tCal = Calendar.getInstance().apply { time = it.date }
-            tCal.get(Calendar.MONTH) == currentMonth && tCal.get(Calendar.YEAR) == currentYear
+        val currentCycle = com.example.util.BudgetCycleManager.getCurrentCycleRange()
+        val currentCycleTransactions = currentTransactions.filter {
+            it.date.time in currentCycle.startDateMillis..currentCycle.endDateMillis
         }
 
-        val totalIncome = currentMonthTransactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-        val totalExpense = currentMonthTransactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+        val totalIncome = currentCycleTransactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+        val totalExpense = currentCycleTransactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
 
-        val currentDay = cal.get(Calendar.DAY_OF_MONTH).coerceAtLeast(1)
+        val currentDay = currentCycle.elapsedDays.coerceAtLeast(1)
+        val cycleDays = currentCycle.totalDaysInCycle.coerceAtLeast(currentDay)
         val dailyExpense = (totalExpense / currentDay).coerceAtLeast(1.0)
-        val monthlyEstimatedExpense = dailyExpense * 30.0
+        val monthlyEstimatedExpense = dailyExpense * cycleDays.toDouble()
 
         // 1. Tasa de Ahorro: (Income - Expense) / Income
         val savingsRate = if (totalIncome > 0) ((totalIncome - totalExpense) / totalIncome * 100.0).coerceIn(-100.0, 100.0) else 0.0
@@ -943,7 +946,7 @@ class AssistantViewModel(
 
         // 3. Ratio de Gastos Fijos vs Ingresos (ej. recurrentes o categorías esenciales)
         val fixedCategories = listOf("servicios", "renta", "alquiler", "hogar", "educación", "salud", "transporte")
-        val fixedSpent = currentMonthTransactions
+        val fixedSpent = currentCycleTransactions
             .filter { it.type == TransactionType.EXPENSE && fixedCategories.any { fix -> it.category.name.lowercase().contains(fix) } }
             .sumOf { it.amount }
         val fixedRatio = if (totalIncome > 0) (fixedSpent / totalIncome * 100.0) else 50.0
@@ -963,7 +966,7 @@ class AssistantViewModel(
         val budgetedCategories = currentCategories.filter { it.maxMonthlyBudget != null && it.maxMonthlyBudget > 0 }
         val adherencePct = if (budgetedCategories.isNotEmpty()) {
             val respectedCount = budgetedCategories.count { cat ->
-                val spentInCat = currentMonthTransactions
+                val spentInCat = currentCycleTransactions
                     .filter { it.type == TransactionType.EXPENSE && it.category.id == cat.id }
                     .sumOf { it.amount }
                 spentInCat <= (cat.maxMonthlyBudget ?: 0.0)
