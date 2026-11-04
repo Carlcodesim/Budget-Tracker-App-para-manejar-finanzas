@@ -9,13 +9,14 @@ import java.util.Properties
 import java.util.UUID
 
 /**
- * Coordinates only the currently certified v14 path:
- * read-only preflight -> raw snapshot -> isolated SQLite/Room validation ->
- * read-only financial audit -> explicit user authorization.
+ * Coordinates strict recovery:
+ * read-only preflight -> raw snapshot -> optional isolated v9-v13 migration
+ * rehearsal -> independent SQLite/Room validation -> read-only financial audit
+ * -> explicit user authorization.
  *
- * Legacy, future, absent, malformed or inconsistent evidence outside the
- * explicitly-supported sidecar cases stays in protection mode. This version
- * deliberately does not rehearse migrations or create a new database.
+ * Only schema v14 and the fully registered v9-v13 migration path are eligible.
+ * Unsupported, future, malformed or inconsistent evidence stays quarantined.
+ * No migration ever runs against the original or raw evidence snapshot.
  */
 object StrictRecoveryCoordinator {
 
@@ -110,7 +111,13 @@ object StrictRecoveryCoordinator {
                         preflight.reasonCode == "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT" ||
                         preflight.reasonCode == "ROLLBACK_JOURNAL_PRESENT"
                     )
-            if (!hasSupportedV14Header) {
+            val requiresMigrationRehearsal = preflight.schemaVersion in 9..13 &&
+                (
+                    preflight.condition == DatabaseCondition.LEGACY_MIGRATION_CANDIDATE ||
+                        preflight.reasonCode == "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT" ||
+                        preflight.reasonCode == "ROLLBACK_JOURNAL_PRESENT"
+                    )
+            if (!hasSupportedV14Header && !requiresMigrationRehearsal) {
                 return PreparationResult.Blocked(
                     preflight.reasonCode,
                     preflight.message
@@ -130,9 +137,22 @@ object StrictRecoveryCoordinator {
                 )
             }
 
-            val validated = when (
-                val validation = DatabaseSnapshotValidator.validate(appContext, rawSnapshot)
-            ) {
+            val validationResult = if (requiresMigrationRehearsal) {
+                val rehearsal = when (
+                    val result = DatabaseMigrationRehearsal.rehearse(appContext, rawSnapshot)
+                ) {
+                    is DatabaseMigrationRehearsal.Result.Completed -> result.migration
+                    is DatabaseMigrationRehearsal.Result.Rejected -> return PreparationResult.Blocked(
+                        result.reasonCode,
+                        "La migración se ensayó únicamente en una copia aislada y no produjo evidencia aceptable."
+                    )
+                }
+                DatabaseSnapshotValidator.validateMigrated(appContext, rehearsal)
+            } else {
+                DatabaseSnapshotValidator.validate(appContext, rawSnapshot)
+            }
+
+            val validated = when (val validation = validationResult) {
                 is SnapshotValidationResult.Validated -> validation
                 is SnapshotValidationResult.Rejected -> return PreparationResult.Blocked(
                     validation.reasonCode,

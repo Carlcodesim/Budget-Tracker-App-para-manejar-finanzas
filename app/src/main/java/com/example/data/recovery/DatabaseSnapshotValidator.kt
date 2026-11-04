@@ -237,12 +237,14 @@ object DatabaseSnapshotValidator {
         val walRaw = migration.walFile
         val journalRaw = migration.journalFile
 
+        var createdValidationWorkspace: File? = null
         return try {
             if (Files.isSymbolicLink(workspaceRaw.toPath()) ||
                 Files.isSymbolicLink(databaseRaw.toPath()) ||
                 Files.isSymbolicLink(reportRaw.toPath()) ||
                 (walRaw != null && Files.isSymbolicLink(walRaw.toPath())) ||
-                (journalRaw != null && Files.isSymbolicLink(journalRaw.toPath()))
+                (journalRaw != null && Files.isSymbolicLink(journalRaw.toPath())) ||
+                Files.isSymbolicLink(File(workspaceRaw, "$DATABASE_NAME-shm").toPath())
             ) {
                 return SnapshotValidationResult.Rejected("MIGRATION_WORKSPACE_SYMLINK_REJECTED")
             }
@@ -254,8 +256,10 @@ object DatabaseSnapshotValidator {
             val journalFile = journalRaw?.canonicalFile
             val expectedDatabase = File(workspace, DATABASE_NAME)
             val expectedReport = File(workspace, MIGRATION_REPORT_NAME)
-            val expectedWal = File(workspace, WAL_NAME).takeIf { it.isFile }
-            val expectedJournal = File(workspace, JOURNAL_NAME).takeIf { it.isFile }
+            // Only durable WAL/journal payloads are carried into the next copy.
+            // Empty WAL headers and transient SHM indexes are reconstructed by SQLite.
+            val expectedWal = File(workspace, WAL_NAME).takeIf { it.isFile && it.length() > 32L }
+            val expectedJournal = File(workspace, JOURNAL_NAME).takeIf { it.isFile && it.length() > 0L }
 
             if (!workspace.path.startsWith(migrationRoot.path + File.separator) ||
                 workspace.name.isBlank() ||
@@ -264,8 +268,7 @@ object DatabaseSnapshotValidator {
                 walFile != expectedWal?.canonicalFile ||
                 journalFile != expectedJournal?.canonicalFile ||
                 !databaseFile.isFile ||
-                !reportFile.isFile ||
-                File(workspace, "$DATABASE_NAME-shm").exists()
+                !reportFile.isFile
             ) {
                 return SnapshotValidationResult.Rejected("MIGRATION_WORKSPACE_PATH_INVALID")
             }
@@ -342,6 +345,7 @@ object DatabaseSnapshotValidator {
             if (!validationWorkspace.mkdir()) {
                 return SnapshotValidationResult.Rejected("VALIDATION_WORKSPACE_CREATION_FAILED")
             }
+            createdValidationWorkspace = validationWorkspace
 
             validateWorkspace(
                 appContext,
@@ -357,10 +361,13 @@ object DatabaseSnapshotValidator {
                 validationWorkspace
             )
         } catch (_: SecurityException) {
+            createdValidationWorkspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("MIGRATED_VALIDATION_ACCESS_DENIED")
         } catch (_: IOException) {
+            createdValidationWorkspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("MIGRATED_VALIDATION_IO_FAILURE")
         } catch (_: Exception) {
+            createdValidationWorkspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("MIGRATED_VALIDATION_FAILED_CLOSED")
         }
     }
