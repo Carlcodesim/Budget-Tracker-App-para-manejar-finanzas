@@ -116,6 +116,23 @@ class DatabaseSnapshotValidatorTest {
     }
 
     @Test
+    fun roomIdentityHashMustMatchTheGeneratedV14Schema() {
+        createRoomFixture(original, version = 14)
+        val database = SQLiteDatabase.openDatabase(original.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+        try {
+            database.execSQL("UPDATE room_master_table SET identity_hash = 'different-identity' WHERE id = 42")
+        } finally {
+            database.close()
+        }
+        val snapshot = DatabaseSnapshotCopier.copyOriginalDatabase(context) as SnapshotCopyResult.Created
+
+        val result = DatabaseSnapshotValidator.validate(context, snapshot)
+
+        assertEquals(SnapshotValidationResult.Rejected("ROOM_IDENTITY_HASH_MISMATCH"), result)
+        assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
+    }
+
+    @Test
     fun tamperedRawSnapshotIsRejectedBeforeSqliteIsOpened() {
         createRoomFixture(original, version = 14)
         val snapshot = DatabaseSnapshotCopier.copyOriginalDatabase(context) as SnapshotCopyResult.Created
@@ -312,7 +329,7 @@ class DatabaseSnapshotValidatorTest {
                 "CREATE TABLE room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)"
             )
             database.execSQL(
-                "INSERT INTO room_master_table(id, identity_hash) VALUES(42, 'test-room-schema-identity')"
+                "INSERT INTO room_master_table(id, identity_hash) VALUES(42, '86254750241babac4b8d52996a675549')"
             )
             database.version = version
         } finally {
