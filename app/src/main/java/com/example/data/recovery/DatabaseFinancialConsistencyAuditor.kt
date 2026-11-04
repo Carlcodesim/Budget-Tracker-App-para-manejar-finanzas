@@ -2,6 +2,7 @@ package com.example.data.recovery
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import com.example.data.local.AppDatabase
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -64,7 +65,7 @@ object DatabaseFinancialConsistencyAuditor {
         var database: SQLiteDatabase? = null
 
         return try {
-            if (DatabaseAccessGate.isNormalAccessAllowed() || validated.authorizedForRoom) {
+            if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance() || validated.authorizedForRoom) {
                 return Result.Rejected("ROOM_ACCESS_MUST_REMAIN_DISABLED")
             }
 
@@ -168,7 +169,8 @@ object DatabaseFinancialConsistencyAuditor {
                 setProperty("scan_completed", "true")
                 setProperty("database_unchanged", "true")
                 setProperty("financial_consistency_passed", issues.isEmpty().toString())
-                setProperty("financial_consistency_validated", "true")
+                setProperty("financial_consistency_scan_completed", "true")
+                setProperty("financial_consistency_validated", issues.isEmpty().toString())
                 setProperty("normal_access_authorized", "false")
                 setProperty("room_authorized", "false")
                 issues.forEachIndexed { index, issue ->
