@@ -161,6 +161,40 @@ class BackupManagerSafetyTest {
     }
 
     @Test
+    fun importPreservesVariableTimestampLegacyLookalikeBusiness() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val backup = JSONObject().apply {
+            put("version", 1)
+            put("businesses", JSONArray().put(JSONObject().apply {
+                put("id", 1)
+                put("name", "INSERC Store")
+                put("type", "Tecnología y Comercio")
+                put("description", "Negocio comercial principal")
+                put("colorHex", "#2563EB")
+                put("iconKey", "storefront")
+                put("inventoryValue", 0.0)
+                put("createdAt", 1700000000000L)
+            }))
+        }.toString()
+
+        try {
+            val restored = BackupManager.importBackupFromJson(context, db, backup)
+            assertEquals(1, restored)
+            assertEquals(
+                "Negocio comercial principal",
+                db.businessDao().getBusinessById(1)?.description
+            )
+            assertEquals(1700000000000L, db.businessDao().getBusinessById(1)?.createdAt)
+        } finally {
+            db.close()
+        }
+    }
+
+
+    @Test
     fun importRestoresCyclePreferencesWhenPresent() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)

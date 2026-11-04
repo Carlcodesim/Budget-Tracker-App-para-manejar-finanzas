@@ -16,6 +16,58 @@ import org.robolectric.annotation.Config
 class BusinessDefaultMigrationTest {
 
     @Test
+    fun migrationPreservesVariableTimestampLegacyLookalikeBecauseOwnershipIsAmbiguous() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "business-variable-placeholder-migration-test.db"
+        context.deleteDatabase(databaseName)
+
+        val current = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            current.openHelper.writableDatabase.execSQL(
+                """
+                INSERT INTO businesses
+                (id, name, type, description, colorHex, iconKey, inventoryValue, createdAt)
+                VALUES (1, 'INSERC Store', 'Tecnología y Comercio', 'Negocio comercial principal',
+                        '#2563EB', 'storefront', 0.0, 1700000000000)
+                """.trimIndent()
+            )
+        } finally {
+            current.close()
+        }
+
+        val file = context.getDatabasePath(databaseName)
+        val legacy = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+        try {
+            legacy.version = 13
+        } finally {
+            legacy.close()
+        }
+
+        val migrated = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .addMigrations(AppDatabase.MIGRATION_13_14)
+            .build()
+        try {
+            val db = migrated.openHelper.writableDatabase
+            db.query(
+                "SELECT name, description, inventoryValue, createdAt FROM businesses WHERE id = 1"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("INSERC Store", cursor.getString(0))
+                assertEquals("Negocio comercial principal", cursor.getString(1))
+                assertEquals(0.0, cursor.getDouble(2), 0.001)
+                assertEquals(1700000000000L, cursor.getLong(3))
+            }
+        } finally {
+            migrated.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+
+    @Test
     fun migrationRemovesOnlyUntouchedDefaultAndPreservesUserBusinesses() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val databaseName = "business-default-migration-test.db"
