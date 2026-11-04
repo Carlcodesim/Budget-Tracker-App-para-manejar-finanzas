@@ -130,6 +130,71 @@ class DatabaseSnapshotValidatorTest {
         assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
     }
 
+    @Test
+    fun committedWalChangesAreValidatedFromIsolatedWorkspace() {
+        createRoomFixture(original, version = 14)
+        val sourceDatabase = SQLiteDatabase.openDatabase(
+            original.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE
+        )
+        try {
+            val mode = sourceDatabase.rawQuery("PRAGMA journal_mode=WAL", null).use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else ""
+            }
+            assertEquals("wal", mode.lowercase())
+
+            sourceDatabase.execSQL(
+                "INSERT INTO accounts(name, type, initialBalance, colorHex) VALUES(?, ?, ?, ?)",
+                arrayOf("WAL-VALIDATION-TEST", "CASH", 125.0, "#123456")
+            )
+
+            val sourceWal = File(original.path + "-wal")
+            assertTrue("SQLite should have a WAL file with committed data", sourceWal.isFile)
+            val snapshot = DatabaseSnapshotCopier.copyOriginalDatabase(context)
+            assertTrue(snapshot is SnapshotCopyResult.Created)
+            val raw = snapshot as SnapshotCopyResult.Created
+            assertTrue(raw.sourceWalObserved)
+
+            val originalHashBeforeValidation = sha256(original)
+            val originalWalHashBeforeValidation = sha256(sourceWal)
+            val rawSnapshotHashBeforeValidation = sha256(raw.databaseFile)
+            val rawWalHashBeforeValidation = sha256(raw.walFile!!)
+
+            val result = DatabaseSnapshotValidator.validate(context, raw)
+
+            assertTrue("WAL-backed snapshot validation should pass: $result", result is SnapshotValidationResult.Validated)
+            val validated = result as SnapshotValidationResult.Validated
+            assertTrue(validated.sqliteIntegrityChecksPassed)
+            assertFalse(validated.authorizedForRoom)
+
+            // Validation/checkpointing operates only on a second-generation workspace.
+            assertEquals(originalHashBeforeValidation, sha256(original))
+            assertEquals(originalWalHashBeforeValidation, sha256(sourceWal))
+            assertEquals(rawSnapshotHashBeforeValidation, sha256(raw.databaseFile))
+            assertEquals(rawWalHashBeforeValidation, sha256(raw.walFile!!))
+
+            val verifiedDatabase = SQLiteDatabase.openDatabase(
+                validated.validatedDatabaseFile.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY
+            )
+            try {
+                val count = verifiedDatabase.rawQuery(
+                    "SELECT COUNT(*) FROM accounts WHERE name = 'WAL-VALIDATION-TEST'",
+                    null
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getInt(0) else 0
+                }
+                assertEquals(1, count)
+            } finally {
+                verifiedDatabase.close()
+            }
+        } finally {
+            sourceDatabase.close()
+        }
+    }
+
     private fun createRoomFixture(
         file: File,
         version: Int,
