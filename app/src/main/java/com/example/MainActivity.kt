@@ -123,6 +123,9 @@ class MainActivity : ComponentActivity() {
                                 when (result) {
                                     is StrictRecoveryCoordinator.AuthorizationResult.Authorized -> {
                                         isAuthorized = DatabaseAccessGate.isNormalAccessAllowed()
+                                        if (isAuthorized) {
+                                            app.startDatabaseDependentServicesAfterAuthorization()
+                                        }
                                         readyForAuthorization = false
                                         statusMessage = "La copia validada fue activada. La base original se conserva sin cambios."
                                     }
