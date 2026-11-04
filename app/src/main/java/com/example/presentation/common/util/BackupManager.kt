@@ -244,10 +244,185 @@ object BackupManager {
     }
 
     /**
+     * Validate the full JSON structure before starting any Room transaction.
+     * Critical financial values are never silently replaced with opt* defaults.
+     * Optional fields remain optional only where version-1 legacy support is documented.
+     */
+    private fun validateBackupForImport(root: JSONObject) {
+        val version = requiredInteger(root, "version", "backup")
+        if (version != 1L) {
+            throw IllegalArgumentException("Versión de respaldo no compatible: $version.")
+        }
+
+        validateRecords(root, "accounts") { record, path ->
+            requiredString(record, "name", path)
+            requiredString(record, "type", path)
+            requiredNumber(record, "initialBalance", path)
+            requiredString(record, "colorHex", path)
+        }
+        validateRecords(root, "categories") { record, path ->
+            requiredString(record, "name", path)
+            requiredString(record, "iconKey", path)
+            requiredBoolean(record, "isDefault", path)
+            optionalNumber(record, "maxMonthlyBudget", path)
+            requiredString(record, "colorHex", path)
+            requiredString(record, "type", path)
+        }
+        validateRecords(root, "transactions") { record, path ->
+            requiredNumber(record, "amount", path)
+            requiredString(record, "type", path)
+            requiredInteger(record, "categoryId", path)
+            requiredString(record, "description", path)
+            requiredInteger(record, "date", path)
+            requiredInteger(record, "accountId", path)
+            optionalString(record, "tags", path)
+        }
+        validateRecords(root, "reminders") { record, path ->
+            requiredString(record, "type", path)
+            requiredString(record, "title", path)
+            requiredString(record, "description", path)
+            requiredBoolean(record, "isEnabled", path)
+            optionalNumber(record, "amount", path)
+            optionalInteger(record, "dueDateDay", path)
+            optionalString(record, "time", path)
+            optionalInteger(record, "notifyDaysBefore", path)
+            optionalString(record, "notifyTime", path)
+            optionalInteger(record, "associatedGoalId", path)
+            optionalBoolean(record, "isCompletedThisMonth", path)
+        }
+        validateRecords(root, "savingsGoals") { record, path ->
+            requiredString(record, "name", path)
+            requiredNumber(record, "targetAmount", path)
+            requiredNumber(record, "currentAmount", path)
+            optionalInteger(record, "deadline", path)
+            requiredInteger(record, "createdAt", path)
+            requiredString(record, "description", path)
+            requiredString(record, "priority", path)
+            requiredString(record, "category", path)
+        }
+        validateRecords(root, "recurringExpenses") { record, path ->
+            requiredString(record, "title", path)
+            requiredNumber(record, "amount", path)
+            requiredInteger(record, "categoryId", path)
+            requiredInteger(record, "accountId", path)
+            requiredInteger(record, "dayOfMonth", path)
+            optionalString(record, "description", path)
+            optionalString(record, "tags", path)
+            requiredBoolean(record, "isEnabled", path)
+            optionalString(record, "lastExecutedMonth", path)
+            optionalBoolean(record, "autoCreate", path)
+            requiredInteger(record, "createdAt", path)
+            // Old version-1 backups predate configurable frequencies and intentionally
+            // retain the MONTHLY / zero-date compatibility defaults.
+            optionalString(record, "frequency", path)
+            optionalInteger(record, "anchorDate", path)
+            optionalInteger(record, "nextDueDate", path)
+        }
+        validateRecords(root, "businesses") { record, path ->
+            requiredString(record, "name", path)
+            requiredString(record, "type", path)
+            requiredString(record, "description", path)
+            requiredString(record, "colorHex", path)
+            requiredString(record, "iconKey", path)
+            requiredNumber(record, "inventoryValue", path)
+            requiredInteger(record, "createdAt", path)
+        }
+
+        if (root.has("preferences") && !root.isNull("preferences")) {
+            val preferences = root.opt("preferences") as? JSONObject
+                ?: throw IllegalArgumentException("El campo backup.preferences debe ser un objeto.")
+            if (preferences.has("cycleStartDay") && !preferences.isNull("cycleStartDay")) {
+                val startDay = requiredInteger(preferences, "cycleStartDay", "preferences")
+                if (startDay !in 1L..31L) {
+                    throw IllegalArgumentException("backup.preferences.cycleStartDay debe estar entre 1 y 31.")
+                }
+            }
+            optionalNumber(preferences, "predictedIncome", "preferences")
+            optionalString(preferences, "currencyCode", "preferences")
+        }
+    }
+
+    private inline fun validateRecords(
+        root: JSONObject,
+        arrayName: String,
+        validateRecord: (JSONObject, String) -> Unit
+    ) {
+        if (!root.has(arrayName)) return
+        val records = root.opt(arrayName) as? JSONArray
+            ?: throw IllegalArgumentException("El campo backup.$arrayName debe ser una lista.")
+        val seenIds = mutableSetOf<Long>()
+        for (index in 0 until records.length()) {
+            val path = "$arrayName[$index]"
+            val record = records.opt(index) as? JSONObject
+                ?: throw IllegalArgumentException("El registro $path debe ser un objeto.")
+            val id = requiredInteger(record, "id", path)
+            if (id <= 0L) {
+                throw IllegalArgumentException("El campo $path.id debe ser un identificador positivo.")
+            }
+            if (!seenIds.add(id)) {
+                throw IllegalArgumentException("El respaldo contiene el identificador duplicado $id en $arrayName.")
+            }
+            validateRecord(record, path)
+        }
+    }
+
+    private fun requiredValue(record: JSONObject, key: String, path: String): Any {
+        if (!record.has(key) || record.isNull(key)) {
+            throw IllegalArgumentException("Falta el campo obligatorio $path.$key.")
+        }
+        return record.opt(key)
+            ?: throw IllegalArgumentException("El campo obligatorio $path.$key está vacío.")
+    }
+
+    private fun requiredString(record: JSONObject, key: String, path: String): String =
+        requiredValue(record, key, path) as? String
+            ?: throw IllegalArgumentException("El campo $path.$key debe ser texto.")
+
+    private fun requiredBoolean(record: JSONObject, key: String, path: String): Boolean =
+        requiredValue(record, key, path) as? Boolean
+            ?: throw IllegalArgumentException("El campo $path.$key debe ser booleano.")
+
+    private fun requiredNumber(record: JSONObject, key: String, path: String): Number {
+        val value = requiredValue(record, key, path) as? Number
+            ?: throw IllegalArgumentException("El campo $path.$key debe ser numérico.")
+        if (!value.toDouble().isFinite()) {
+            throw IllegalArgumentException("El campo $path.$key debe ser un número finito.")
+        }
+        return value
+    }
+
+    private fun requiredInteger(record: JSONObject, key: String, path: String): Long {
+        val number = requiredNumber(record, key, path).toDouble()
+        val integer = number.toLong()
+        if (number != integer.toDouble()) {
+            throw IllegalArgumentException("El campo $path.$key debe ser un entero.")
+        }
+        return integer
+    }
+
+    private fun optionalString(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredString(record, key, path)
+    }
+
+    private fun optionalBoolean(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredBoolean(record, key, path)
+    }
+
+    private fun optionalNumber(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredNumber(record, key, path)
+    }
+
+    private fun optionalInteger(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredInteger(record, key, path)
+    }
+
+
+    /**
      * Importa y restaura una copia de seguridad JSON guardada previamente.
      */
     suspend fun importBackupFromJson(context: Context, db: AppDatabase, jsonString: String): Int {
         val rootJson = JSONObject(jsonString)
+        validateBackupForImport(rootJson)
         val restoredCount = db.withTransaction {
         var restoredCount = 0
 

@@ -9,6 +9,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -188,6 +189,67 @@ class BackupManagerSafetyTest {
                 db.businessDao().getBusinessById(1)?.description
             )
             assertEquals(1700000000000L, db.businessDao().getBusinessById(1)?.createdAt)
+        } finally {
+            db.close()
+        }
+    }
+
+
+    @Test
+    fun malformedFinancialBackupIsRejectedBeforeAnyDatabaseWrite() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val backup = JSONObject().apply {
+            put("version", 1)
+            put("accounts", JSONArray().put(JSONObject().apply {
+                put("id", 1)
+                put("name", "Cash")
+                put("type", "CASH")
+                put("initialBalance", 100.0)
+                put("colorHex", "#00AA00")
+            }))
+            put("transactions", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("id", 1)
+                    put("amount", 20.0)
+                    put("type", "EXPENSE")
+                    put("categoryId", 1)
+                    put("description", "Valid row before malformed row")
+                    put("date", 1700000000000L)
+                    put("accountId", 1)
+                })
+                put(JSONObject().apply {
+                    put("id", 2)
+                    // amount is deliberately absent; the old importer silently defaulted it to 0.
+                    put("type", "EXPENSE")
+                    put("categoryId", 1)
+                    put("description", "Must not be imported")
+                    put("date", 1700000000001L)
+                    put("accountId", 1)
+                })
+            })
+        }.toString()
+
+        try {
+            val error = try {
+                BackupManager.importBackupFromJson(context, db, backup)
+                null
+            } catch (exception: IllegalArgumentException) {
+                exception.message
+            }
+            assertTrue(error?.contains("transactions[1].amount") == true)
+
+            val readable = db.openHelper.readableDatabase
+            readable.query("SELECT COUNT(*) FROM accounts").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            readable.query("SELECT COUNT(*) FROM transactions").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
         } finally {
             db.close()
         }
