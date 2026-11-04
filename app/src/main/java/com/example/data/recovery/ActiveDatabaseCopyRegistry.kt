@@ -38,12 +38,15 @@ object ActiveDatabaseCopyRegistry {
         val appContext = context.applicationContext
         return try {
             val filesRoot = appContext.filesDir.canonicalFile
-            val recoveryRoot = File(filesRoot, "recovery").canonicalFile
+            val recoveryRootRaw = File(filesRoot, "recovery")
+            if (FilesSupport.isSymbolicLink(recoveryRootRaw)) {
+                return Source.Rejected("ACTIVE_DATABASE_REGISTRY_SYMLINK_REJECTED")
+            }
+            val recoveryRoot = recoveryRootRaw.canonicalFile
             val registry = File(recoveryRoot, REGISTRY_NAME)
             val temporary = File(recoveryRoot, TEMP_NAME)
 
-            if (FilesSupport.isSymbolicLink(recoveryRoot) ||
-                FilesSupport.isSymbolicLink(registry) ||
+            if (FilesSupport.isSymbolicLink(registry) ||
                 FilesSupport.isSymbolicLink(temporary)
             ) {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_SYMLINK_REJECTED")
@@ -80,13 +83,21 @@ object ActiveDatabaseCopyRegistry {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_PATH_INVALID")
             }
 
-            val validationRoot = File(filesRoot, VALIDATION_DIRECTORY).canonicalFile
-            val databaseFile = File(filesRoot, relativePath).canonicalFile
+            val validationRootRaw = File(filesRoot, VALIDATION_DIRECTORY)
+            val workspaceRaw = File(validationRootRaw, workspaceId)
+            val databaseRaw = File(workspaceRaw, DATABASE_NAME)
+            if (FilesSupport.isSymbolicLink(validationRootRaw) ||
+                FilesSupport.isSymbolicLink(workspaceRaw) ||
+                FilesSupport.isSymbolicLink(databaseRaw)
+            ) {
+                return Source.Rejected("REGISTERED_ACTIVE_DATABASE_SYMLINK_REJECTED")
+            }
+            val validationRoot = validationRootRaw.canonicalFile
+            val databaseFile = databaseRaw.canonicalFile
             if (!databaseFile.path.startsWith(validationRoot.path + File.separator) ||
                 databaseFile.name != DATABASE_NAME ||
                 databaseFile.parentFile?.name != workspaceId ||
-                !databaseFile.isFile ||
-                FilesSupport.isSymbolicLink(File(filesRoot, relativePath))
+                !databaseFile.isFile
             ) {
                 return Source.Rejected("REGISTERED_ACTIVE_DATABASE_MISSING_OR_INVALID")
             }
@@ -112,7 +123,14 @@ object ActiveDatabaseCopyRegistry {
         return try {
             val appContext = context.applicationContext
             val filesRoot = appContext.filesDir.canonicalFile
-            val validationRoot = File(filesRoot, VALIDATION_DIRECTORY).canonicalFile
+            val validationRootRaw = File(filesRoot, VALIDATION_DIRECTORY)
+            val workspaceRaw = File(validationRootRaw, workspaceId)
+            val databaseRaw = File(workspaceRaw, DATABASE_NAME)
+            if (FilesSupport.isSymbolicLink(validationRootRaw) ||
+                FilesSupport.isSymbolicLink(workspaceRaw) ||
+                FilesSupport.isSymbolicLink(databaseRaw)
+            ) return false
+            val validationRoot = validationRootRaw.canonicalFile
             val canonicalDatabase = databaseFile.canonicalFile
             if (!snapshotId.matches(Regex("^[0-9a-fA-F-]{36}$")) ||
                 !workspaceId.matches(Regex("^[0-9a-fA-F-]{36}$")) ||
@@ -127,13 +145,17 @@ object ActiveDatabaseCopyRegistry {
             }
 
             val relativePath = filesRoot.toPath().relativize(canonicalDatabase.toPath()).toString()
-            if (relativePath != "$VALIDATION_DIRECTORY/$workspaceId/$DATABASE_NAME") {
+            if (relativePath != "$VALIDATION_DIRECTORY/$workspaceId/$DATABASE_NAME" ||
+                sha256(canonicalDatabase) != databaseSha256.lowercase()
+            ) {
                 return false
             }
 
-            val recoveryRoot = File(filesRoot, "recovery")
+            val recoveryRootRaw = File(filesRoot, "recovery")
+            if (FilesSupport.isSymbolicLink(recoveryRootRaw)) return false
+            val recoveryRoot = recoveryRootRaw.canonicalFile
             if (!recoveryRoot.exists() && !recoveryRoot.mkdirs()) return false
-            if (!recoveryRoot.isDirectory || FilesSupport.isSymbolicLink(recoveryRoot)) return false
+            if (!recoveryRoot.isDirectory) return false
 
             val registry = File(recoveryRoot, REGISTRY_NAME)
             val temporary = File(recoveryRoot, TEMP_NAME)
@@ -158,6 +180,19 @@ object ActiveDatabaseCopyRegistry {
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private object FilesSupport {
