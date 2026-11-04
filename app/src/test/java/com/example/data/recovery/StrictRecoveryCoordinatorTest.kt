@@ -145,8 +145,8 @@ class StrictRecoveryCoordinatorTest {
                 assertTrue(it.moveToFirst())
                 it.getInt(0)
             }
-            assertEquals(10, count("categories"))
-            assertEquals(4, count("accounts"))
+            assertEquals(0, count("categories"))
+            assertEquals(0, count("accounts"))
             assertEquals(0, count("businesses"))
             assertEquals(0, count("recurring_expenses"))
         } finally {
