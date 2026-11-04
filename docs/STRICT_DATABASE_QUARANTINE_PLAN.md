@@ -174,3 +174,17 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - The copier refuses to run while normal database permission is active or while an AppDatabase Room singleton has been constructed in this process.
 - Added Robolectric tests for missing original DB, byte-identical main+WAL copy, preserving-but-not-copying SHM, rollback journal copy, source immutability, and independent snapshot IDs.
 - This is a raw copy mechanism, not a complete recovery/snapshot certification protocol. It does not yet provide a durable snapshot journal, disk-full fault injection, process-death recovery, isolated SQLite integrity checks, WAL/journal recovery validation, or proof of system-wide quiescence. It is not called automatically and must not be treated as an authorized active database.
+
+
+### Stage 2B — Isolated SQLite and Room-schema validation (implemented; CI verification pending for the latest revision)
+
+- Added `DatabaseSnapshotValidator.kt`. It first verifies the raw snapshot manifest, snapshot ID, expected file locations, SHA-256 hashes, byte sizes and sidecar metadata.
+- It rejects symlinked snapshot components and any SHM file inside the raw snapshot. The copier's contract is to record SHM presence but not copy the transient SHM index.
+- The validator creates a second private validation workspace and copies the raw database, WAL and rollback journal into it. SQLite is opened read-write **only on this disposable workspace**, with `CREATE_IF_NECESSARY` omitted. The original database and raw snapshot are not opened or modified.
+- SQLite checks run on the workspace: `PRAGMA quick_check(1)`, `PRAGMA integrity_check`, `user_version = 14`, expected Room identity table/identity presence, exact expected table columns, declared types, nullability, primary keys, selected SQL defaults, and required Room index names/columns.
+- When a copied WAL exists, the validator requires a successful `PRAGMA wal_checkpoint(TRUNCATE)` with no busy frames and rejects an unresolved non-empty rollback journal or WAL payload after closing SQLite.
+- Validation writes a separate report with pre-/post-validation hashes and explicit scope markers: SQLite checks/schema pass, financial consistency not yet validated, and Room access not authorized.
+- The raw snapshot is preserved byte-for-byte. SQLite recovery/checkpoint writes can only affect the second-generation validation workspace.
+- Added tests for a valid Room-shaped database, corrupted SQLite, a missing required index, future schema version, tampered raw snapshot, and committed WAL data visible in the validated workspace while original/raw snapshot bytes remain unchanged.
+- **Scope boundary:** these checks certify SQLite structural integrity and the expected v14 Room table/index layout only. They do not validate financial/business invariants, account/category references, duplicate transfer pairs, recurring-expense semantics, or the correctness of every user's financial records. They do not compare the recorded Room identity string with a build-generated expected hash. No migration or activation is performed.
+- The validation workspace is not automatically selected as the active DB. No production code grants `DatabaseAccessGate` permission from this report.
