@@ -3,6 +3,8 @@ package com.example.data.recovery
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
+import androidx.room.Room
+import com.example.data.local.AppDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -218,120 +220,27 @@ class DatabaseSnapshotValidatorTest {
         omitTransactionDateIndex: Boolean = false
     ) {
         file.parentFile?.mkdirs()
-        val database = SQLiteDatabase.openOrCreateDatabase(file, null)
+        val room = Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            file.absolutePath
+        ).allowMainThreadQueries().build()
         try {
-            database.execSQL(
-                """CREATE TABLE transactions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    amount REAL NOT NULL,
-                    type TEXT NOT NULL,
-                    categoryId INTEGER NOT NULL,
-                    description TEXT,
-                    date INTEGER NOT NULL,
-                    accountId INTEGER NOT NULL,
-                    tags TEXT
-                )"""
-            )
-            database.execSQL("CREATE INDEX index_transactions_categoryId ON transactions(categoryId)")
-            if (!omitTransactionDateIndex) {
-                database.execSQL("CREATE INDEX index_transactions_date ON transactions(date)")
-            }
-            database.execSQL("CREATE INDEX index_transactions_accountId ON transactions(accountId)")
-            database.execSQL("CREATE INDEX index_transactions_type_date ON transactions(type, date)")
-            database.execSQL("CREATE INDEX index_transactions_accountId_date ON transactions(accountId, date)")
+            room.openHelper.writableDatabase
+        } finally {
+            room.close()
+        }
 
-            database.execSQL(
-                """CREATE TABLE categories (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    name TEXT NOT NULL,
-                    iconKey TEXT NOT NULL,
-                    isDefault INTEGER NOT NULL,
-                    maxMonthlyBudget REAL,
-                    colorHex TEXT NOT NULL,
-                    type TEXT NOT NULL
-                )"""
-            )
-            database.execSQL(
-                """CREATE TABLE accounts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    name TEXT NOT NULL,
-                    type TEXT NOT NULL,
-                    initialBalance REAL NOT NULL,
-                    colorHex TEXT NOT NULL
-                )"""
-            )
-            database.execSQL(
-                """CREATE TABLE savings_goals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    name TEXT NOT NULL,
-                    targetAmount REAL NOT NULL,
-                    currentAmount REAL NOT NULL,
-                    deadline INTEGER,
-                    createdAt INTEGER NOT NULL,
-                    description TEXT NOT NULL,
-                    priority TEXT NOT NULL,
-                    category TEXT NOT NULL
-                )"""
-            )
-            database.execSQL(
-                """CREATE TABLE reminders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    isEnabled INTEGER NOT NULL,
-                    amount REAL,
-                    dueDateDay INTEGER,
-                    time TEXT,
-                    notifyDaysBefore INTEGER NOT NULL,
-                    notifyTime TEXT NOT NULL,
-                    associatedGoalId INTEGER,
-                    isCompletedThisMonth INTEGER NOT NULL
-                )"""
-            )
-            database.execSQL(
-                """CREATE TABLE recurring_expenses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    title TEXT NOT NULL,
-                    amount REAL NOT NULL,
-                    categoryId INTEGER NOT NULL,
-                    accountId INTEGER NOT NULL,
-                    dayOfMonth INTEGER NOT NULL,
-                    description TEXT,
-                    tags TEXT,
-                    isEnabled INTEGER NOT NULL,
-                    lastExecutedMonth TEXT,
-                    autoCreate INTEGER NOT NULL,
-                    createdAt INTEGER NOT NULL,
-                    frequency TEXT NOT NULL DEFAULT 'MONTHLY',
-                    anchorDate INTEGER NOT NULL DEFAULT 0,
-                    nextDueDate INTEGER NOT NULL DEFAULT 0
-                )"""
-            )
-            database.execSQL("CREATE INDEX index_recurring_expenses_categoryId ON recurring_expenses(categoryId)")
-            database.execSQL("CREATE INDEX index_recurring_expenses_accountId ON recurring_expenses(accountId)")
-            database.execSQL("CREATE INDEX index_recurring_expenses_dayOfMonth ON recurring_expenses(dayOfMonth)")
-            database.execSQL("CREATE INDEX index_recurring_expenses_isEnabled ON recurring_expenses(isEnabled)")
-
-            database.execSQL(
-                """CREATE TABLE businesses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    name TEXT NOT NULL,
-                    type TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    colorHex TEXT NOT NULL,
-                    iconKey TEXT NOT NULL,
-                    inventoryValue REAL NOT NULL,
-                    createdAt INTEGER NOT NULL
-                )"""
-            )
-            database.execSQL(
-                "CREATE TABLE room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)"
-            )
-            database.execSQL(
-                "INSERT INTO room_master_table(id, identity_hash) VALUES(42, '86254750241babac4b8d52996a675549')"
-            )
+        val database = SQLiteDatabase.openDatabase(
+            file.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE
+        )
+        try {
             database.version = version
+            if (omitTransactionDateIndex) {
+                database.execSQL("DROP INDEX IF EXISTS index_transactions_date")
+            }
         } finally {
             database.close()
         }
