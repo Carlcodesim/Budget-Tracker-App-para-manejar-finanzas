@@ -434,4 +434,47 @@ class BackupManagerSafetyTest {
             db.close()
         }
     }
+
+    @Test
+    fun importRejectsPopulatedDestinationWithoutChangingExistingRecords() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val backup = JSONObject().apply {
+            put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject())
+        }.toString()
+
+        try {
+            db.accountDao().insertAccount(
+                AccountEntity(
+                    id = 91,
+                    name = "Existing account",
+                    type = "CASH",
+                    initialBalance = 250.0,
+                    colorHex = "#123456"
+                )
+            )
+
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { BackupManager.importBackupFromJson(context, db, backup) }
+            }
+
+            val accounts = db.accountDao().getAllAccounts().first()
+            assertEquals(1, accounts.size)
+            assertEquals("Existing account", accounts.single().name)
+            assertEquals(250.0, accounts.single().initialBalance, 0.001)
+        } finally {
+            db.close()
+        }
+    }
+
 }
