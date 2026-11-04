@@ -24,16 +24,33 @@ object DatabaseSnapshotCopier {
 
     fun copyOriginalDatabase(context: Context): SnapshotCopyResult {
         val appContext = context.applicationContext
-        // Snapshotting is forbidden if this process currently has normal database
-        // permission or has already constructed Room. A later coordinator must
-        // revoke access and close/quiesce all Room users before calling this method.
+        return copyDatabase(appContext, appContext.getDatabasePath(ORIGINAL_DATABASE_NAME))
+    }
+
+    /**
+     * Copies either the immutable legacy source or the currently registered
+     * private active copy. A registered active copy must reside in a prior
+     * validated workspace; arbitrary paths are never accepted.
+     */
+    fun copyDatabase(context: Context, sourceDatabase: File): SnapshotCopyResult {
+        val appContext = context.applicationContext
         if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
             return SnapshotCopyResult.Rejected("ROOM_ACCESS_NOT_QUIESCED")
         }
-        val original = appContext.getDatabasePath(ORIGINAL_DATABASE_NAME)
-        val recoveryRoot = File(appContext.filesDir, RECOVERY_DIRECTORY)
-
         return try {
+            val privateRoot = appContext.filesDir.canonicalFile
+            val canonicalSource = sourceDatabase.canonicalFile
+            val original = appContext.getDatabasePath(ORIGINAL_DATABASE_NAME).canonicalFile
+            val validationRoot = File(privateRoot, "recovery/validation").canonicalFile
+            val isOriginal = canonicalSource == original
+            val isRegisteredCopyLocation =
+                canonicalSource.path.startsWith(validationRoot.path + File.separator) &&
+                    canonicalSource.name == SNAPSHOT_DATABASE_NAME
+            if (!isOriginal && !isRegisteredCopyLocation) {
+                return SnapshotCopyResult.Rejected("SOURCE_DATABASE_PATH_NOT_ALLOWED")
+            }
+
+            val recoveryRoot = File(appContext.filesDir, RECOVERY_DIRECTORY)
             if (!recoveryRoot.exists() && !recoveryRoot.mkdirs()) {
                 return SnapshotCopyResult.Rejected("RECOVERY_DIRECTORY_UNAVAILABLE")
             }
@@ -41,7 +58,6 @@ object DatabaseSnapshotCopier {
                 return SnapshotCopyResult.Rejected("RECOVERY_DIRECTORY_NOT_A_DIRECTORY")
             }
 
-            val privateRoot = appContext.filesDir.canonicalFile
             val canonicalRecoveryRoot = recoveryRoot.canonicalFile
             if (!canonicalRecoveryRoot.path.startsWith(privateRoot.path + File.separator)) {
                 return SnapshotCopyResult.Rejected("RECOVERY_DIRECTORY_OUTSIDE_PRIVATE_STORAGE")
@@ -56,7 +72,7 @@ object DatabaseSnapshotCopier {
                 } ?: return SnapshotCopyResult.Rejected("SNAPSHOT_ALREADY_IN_PROGRESS")
 
                 lock.use {
-                    copyUnderLock(original, canonicalRecoveryRoot)
+                    copyUnderLock(canonicalSource, canonicalRecoveryRoot, isOriginal)
                 }
             }
         } catch (_: SecurityException) {
@@ -68,9 +84,9 @@ object DatabaseSnapshotCopier {
         }
     }
 
-    private fun copyUnderLock(original: File, recoveryRoot: File): SnapshotCopyResult {
+    private fun copyUnderLock(original: File, recoveryRoot: File, isOriginal: Boolean): SnapshotCopyResult {
         if (!original.isFile || !original.canRead()) {
-            return SnapshotCopyResult.Rejected("ORIGINAL_DATABASE_NOT_READABLE")
+            return SnapshotCopyResult.Rejected(if (isOriginal) "ORIGINAL_DATABASE_NOT_READABLE" else "ACTIVE_DATABASE_COPY_NOT_READABLE")
         }
 
         val wal = File(original.path + "-wal")
@@ -118,6 +134,7 @@ object DatabaseSnapshotCopier {
             val manifest = Properties().apply {
                 setProperty("format", "INSERC_SQLITE_RAW_SNAPSHOT_1")
                 setProperty("snapshot_id", snapshotId)
+                setProperty("source_kind", if (isOriginal) "ORIGINAL_DATABASE" else "REGISTERED_ACTIVE_COPY")
                 setProperty("database_sha256", sourceSetBefore.database.sha256)
                 setProperty("database_size", sourceSetBefore.database.length.toString())
                 setProperty("database_last_modified", sourceSetBefore.database.lastModified.toString())
