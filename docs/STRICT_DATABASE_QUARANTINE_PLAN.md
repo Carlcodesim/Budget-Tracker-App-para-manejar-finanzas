@@ -204,7 +204,7 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 
 ### Stage 3A — Strict recovery coordinator and explicit activation (implemented; final CI verification pending)
 
-- Added `StrictRecoveryCoordinator` to orchestrate read-only preflight, raw snapshot, isolated SQLite/Room validation, and financial consistency scan. Only a clean v14 database with the current Room identity hash may reach the explicit confirmation stage.
+- Added `StrictRecoveryCoordinator` to orchestrate read-only preflight, raw snapshot, isolated SQLite/Room validation, and financial consistency scan. Only a clean v14 database accepted by the current build's generated Room implementation may reach the explicit confirmation stage.
 - Any finding from the financial audit stops activation and returns a manual-review result. Damaged, unknown, future, unsupported legacy versions, and incomplete evidence remain blocked. Automatic migrations and repair are intentionally not attempted.
 - Activation rechecks the validation and financial reports, workspace boundaries, schema version, report flags and database hash. It registers the exact private active copy before asking `DatabaseAccessGate` for a normal-access permit.
 - Added `ActiveDatabaseCopyRegistry`. After the first explicit activation, subsequent launches use that registered private DB as the next snapshot source, not the stale historical database path. If the registry disappears or becomes invalid, the app fails closed rather than silently reverting to an older financial generation.
