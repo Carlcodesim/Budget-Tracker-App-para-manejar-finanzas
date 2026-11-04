@@ -103,6 +103,7 @@ class ActiveDatabaseCopyRegistryTest {
             format=INSERC_ACTIVE_DATABASE_REGISTRY_1
             snapshot_id=00000000-0000-0000-0000-000000000000
             workspace_id=00000000-0000-0000-0000-000000000000
+            explicit_user_authorization=true
             database_relative_path=recovery/validation/another/database.sqlite
             """.trimIndent()
         )

@@ -236,7 +236,8 @@ object StrictRecoveryCoordinator {
 
         if (requirePreviouslyAuthorizedSource) {
             if (!pending.wasPreviouslyAuthorized) {
-                pendingAuthorization = null
+                // Rejecting automatic restore must not consume a fresh first-install
+                // candidate; the user can still approve it explicitly in this process.
                 return AuthorizationResult.Rejected("PRIOR_EXPLICIT_AUTHORIZATION_REQUIRED")
             }
             val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(context.applicationContext)

@@ -97,7 +97,7 @@ class DatabaseSnapshotValidatorTest {
 
         assertTrue(result is SnapshotValidationResult.Rejected)
         assertEquals(
-            SnapshotValidationResult.Rejected("ROOM_GENERATED_SCHEMA_VALIDATION_FAILED"),
+            SnapshotValidationResult.Rejected("ROOM_SCHEMA_INDEX_SET_MISMATCH_transactions"),
             result
         )
         assertEquals(originalHash, sha256(original))
@@ -130,7 +130,7 @@ class DatabaseSnapshotValidatorTest {
 
         val result = DatabaseSnapshotValidator.validate(context, snapshot)
 
-        assertEquals(SnapshotValidationResult.Rejected("ROOM_GENERATED_SCHEMA_VALIDATION_FAILED"), result)
+        assertEquals(SnapshotValidationResult.Rejected("ROOM_IDENTITY_HASH_MISMATCH"), result)
         assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
     }
 
