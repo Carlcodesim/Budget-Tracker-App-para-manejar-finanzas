@@ -7,6 +7,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.nio.file.Files
 import java.util.Properties
 import java.util.UUID
 
@@ -220,6 +221,16 @@ object DatabaseSnapshotValidator {
         val expectedWal = File(directory, WAL_NAME).canonicalFile
         val expectedJournal = File(directory, JOURNAL_NAME).canonicalFile
         val expectedManifest = File(directory, MANIFEST_NAME).canonicalFile
+        val rawDatabasePath = File(directory, DATABASE_NAME)
+        val rawWalPath = File(directory, WAL_NAME)
+        val rawJournalPath = File(directory, JOURNAL_NAME)
+        val rawManifestPath = File(directory, MANIFEST_NAME)
+
+        if (Files.isSymbolicLink(rawDatabasePath.toPath()) ||
+            Files.isSymbolicLink(rawWalPath.toPath()) ||
+            Files.isSymbolicLink(rawJournalPath.toPath()) ||
+            Files.isSymbolicLink(rawManifestPath.toPath())
+        ) return null
 
         if (!expectedDatabase.path.startsWith(directory.path + File.separator)) return null
         if (!expectedManifest.path.startsWith(directory.path + File.separator)) return null
@@ -377,6 +388,8 @@ object DatabaseSnapshotValidator {
                 setProperty("room_identity_hash", identityHash)
                 setProperty("database_sha256_before_validation", raw.databaseHash)
                 setProperty("database_sha256_after_validation", postValidationHash)
+                raw.walHash?.let { setProperty("wal_sha256_before_validation", it) }
+                raw.journalHash?.let { setProperty("journal_sha256_before_validation", it) }
                 setProperty("wal_recovery_input_present", (raw.walFile != null).toString())
                 setProperty("journal_recovery_input_present", (raw.journalFile != null).toString())
                 setProperty("recovery_sidecars_resolved", "true")
