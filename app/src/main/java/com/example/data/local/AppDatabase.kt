@@ -126,13 +126,11 @@ abstract class AppDatabase : RoomDatabase() {
                     WHERE id = 1
                       AND name = 'INSERC Store'
                       AND type = 'Tecnología y Comercio'
-                      AND description IN (
-                          'Negocio comercial principal',
-                          'Negocio principal de servicios y venta comercial'
-                      )
+                      AND description = 'Negocio principal de servicios y venta comercial'
                       AND colorHex = '#2563EB'
                       AND iconKey = 'storefront'
                       AND inventoryValue = 0.0
+                      AND createdAt = 1704067200000
                 """.trimIndent())
             }
         }

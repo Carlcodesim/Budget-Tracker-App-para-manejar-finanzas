@@ -83,6 +83,9 @@ class DatabaseFinancialConsistencyAuditorTest {
             writeDb.execSQL(
                 "INSERT INTO recurring_expenses(id, title, amount, categoryId, accountId, dayOfMonth, description, tags, isEnabled, lastExecutedMonth, autoCreate, createdAt, frequency, anchorDate, nextDueDate) VALUES(1, 'Recurrente', 45, 1, 0, 31, NULL, NULL, 1, '2026-13', 0, 1, 'UNKNOWN', 0, 0)"
             )
+            writeDb.execSQL(
+                "INSERT INTO businesses(id, name, type, description, colorHex, iconKey, inventoryValue, createdAt) VALUES(2, 'INSERC Store', 'Tecnología y Comercio', 'Negocio comercial principal', '#2563EB', 'storefront', 0, 1700000000003)"
+            )
         } finally {
             writeDb.close()
         }
@@ -103,6 +106,7 @@ class DatabaseFinancialConsistencyAuditorTest {
         assertTrue("Missing reminder reference finding: $codes", "REMINDER_GOAL_REFERENCE_MISSING" in codes)
         assertTrue("Missing recurring frequency finding: $codes", "RECURRING_FREQUENCY_UNKNOWN" in codes)
         assertTrue("Missing recurring month finding: $codes", "RECURRING_LAST_MONTH_INVALID" in codes)
+        assertTrue("Missing ambiguous legacy business finding: $codes", "BUSINESS_POSSIBLE_LEGACY_PLACEHOLDER" in codes)
 
         assertEquals(validatedHashBeforeAudit, sha256(validated.validatedDatabaseFile))
         assertEquals(completed.databaseSha256Before, completed.databaseSha256After)

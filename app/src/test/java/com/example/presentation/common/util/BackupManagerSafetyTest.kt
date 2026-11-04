@@ -97,7 +97,7 @@ class BackupManagerSafetyTest {
     }
 
     @Test
-    fun importSkipsOnlyUntouchedLegacyBusinessPlaceholder() = runBlocking {
+    fun importSkipsOnlyDeterministicMigrationPlaceholderAndPreservesAmbiguousLegacyBusiness() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
@@ -109,11 +109,11 @@ class BackupManagerSafetyTest {
                     put("id", 1)
                     put("name", "INSERC Store")
                     put("type", "Tecnología y Comercio")
-                    put("description", "Negocio comercial principal")
+                    put("description", "Negocio principal de servicios y venta comercial")
                     put("colorHex", "#2563EB")
                     put("iconKey", "storefront")
                     put("inventoryValue", 0.0)
-                    put("createdAt", 1700000000000L)
+                    put("createdAt", 1704067200000L)
                 })
                 put(JSONObject().apply {
                     put("id", 2)
@@ -135,15 +135,26 @@ class BackupManagerSafetyTest {
                     put("inventoryValue", 500.0)
                     put("createdAt", 1700000000002L)
                 })
+                put(JSONObject().apply {
+                    put("id", 4)
+                    put("name", "INSERC Store")
+                    put("type", "Tecnología y Comercio")
+                    put("description", "Negocio comercial principal")
+                    put("colorHex", "#2563EB")
+                    put("iconKey", "storefront")
+                    put("inventoryValue", 0.0)
+                    put("createdAt", 1700000000003L)
+                })
             })
         }.toString()
 
         try {
             val restoredCount = BackupManager.importBackupFromJson(context, db, backup)
-            assertEquals(2, restoredCount)
+            assertEquals(3, restoredCount)
             assertEquals(null, db.businessDao().getBusinessById(1))
             assertEquals("INSERC Multiservice", db.businessDao().getBusinessById(2)?.name)
             assertEquals("Negocio editado por el usuario", db.businessDao().getBusinessById(3)?.description)
+            assertEquals("Negocio comercial principal", db.businessDao().getBusinessById(4)?.description)
         } finally {
             db.close()
         }

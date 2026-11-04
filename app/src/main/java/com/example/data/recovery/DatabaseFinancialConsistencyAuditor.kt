@@ -449,17 +449,43 @@ object DatabaseFinancialConsistencyAuditor {
     }
 
     private fun inspectBusinesses(db: SQLiteDatabase, issues: MutableList<Issue>) {
-        db.rawQuery("SELECT id, name, inventoryValue FROM businesses", null).use { cursor ->
+        db.rawQuery(
+            "SELECT id, name, type, description, colorHex, iconKey, inventoryValue, createdAt FROM businesses",
+            null
+        ).use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(0)
-                if (cursor.getString(1).isNullOrBlank()) {
+                val name = cursor.getString(1)
+                val type = cursor.getString(2)
+                val description = cursor.getString(3)
+                val colorHex = cursor.getString(4)
+                val iconKey = cursor.getString(5)
+                val inventoryValue = cursor.getDouble(6)
+
+                if (name.isNullOrBlank()) {
                     add(issues, Issue("businesses", id, "BUSINESS_NAME_EMPTY",
                         Severity.REVIEW, "El negocio no tiene un nombre visible."))
                 }
-                val inventoryValue = cursor.getDouble(2)
                 if (!inventoryValue.isFinite() || inventoryValue < 0.0) {
                     add(issues, Issue("businesses", id, "BUSINESS_INVENTORY_VALUE_INVALID",
                         Severity.REVIEW, "El valor de inventario es negativo o no finito."))
+                }
+
+                // An older onOpen callback inserted this row with System.currentTimeMillis().
+                // Its timestamp is not a reliable fingerprint, so preserve it and require
+                // human review instead of deleting a potentially user-created business.
+                val ambiguousLegacySeed =
+                    id == 1L &&
+                    name == "INSERC Store" &&
+                    type == "Tecnología y Comercio" &&
+                    description == "Negocio comercial principal" &&
+                    colorHex == "#2563EB" &&
+                    iconKey == "storefront" &&
+                    inventoryValue == 0.0
+                if (ambiguousLegacySeed) {
+                    add(issues, Issue("businesses", id, "BUSINESS_POSSIBLE_LEGACY_PLACEHOLDER",
+                        Severity.REVIEW,
+                        "Este negocio coincide con un marcador antiguo de fecha variable. Se conserva y requiere confirmación manual."))
                 }
             }
         }

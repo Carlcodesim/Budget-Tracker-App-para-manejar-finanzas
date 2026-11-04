@@ -433,13 +433,11 @@ object BackupManager {
                     business.id == 1L &&
                     business.name == "INSERC Store" &&
                     business.type == "Tecnología y Comercio" &&
-                    business.description in setOf(
-                        "Negocio comercial principal",
-                        "Negocio principal de servicios y venta comercial"
-                    ) &&
+                    business.description == "Negocio principal de servicios y venta comercial" &&
                     business.colorHex == "#2563EB" &&
                     business.iconKey == "storefront" &&
-                    business.inventoryValue == 0.0
+                    business.inventoryValue == 0.0 &&
+                    business.createdAt == 1704067200000L
 
                 if (!isUntouchedLegacyPlaceholder) {
                     db.businessDao().insertBusiness(business)

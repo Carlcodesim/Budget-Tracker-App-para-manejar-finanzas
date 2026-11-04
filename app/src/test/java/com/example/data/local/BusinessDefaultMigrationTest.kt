@@ -31,8 +31,8 @@ class BusinessDefaultMigrationTest {
                 """
                 INSERT INTO businesses
                 (id, name, type, description, colorHex, iconKey, inventoryValue, createdAt)
-                VALUES (1, 'INSERC Store', 'Tecnología y Comercio', 'Negocio comercial principal',
-                        '#2563EB', 'storefront', 0.0, 1700000000000)
+                VALUES (1, 'INSERC Store', 'Tecnología y Comercio', 'Negocio principal de servicios y venta comercial',
+                        '#2563EB', 'storefront', 0.0, 1704067200000)
                 """.trimIndent()
             )
             db.execSQL(
@@ -49,6 +49,14 @@ class BusinessDefaultMigrationTest {
                 (id, name, type, description, colorHex, iconKey, inventoryValue, createdAt)
                 VALUES (3, 'INSERC Store', 'Tecnología y Comercio', 'Mi negocio editado',
                         '#2563EB', 'storefront', 500.0, 1700000000002)
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO businesses
+                (id, name, type, description, colorHex, iconKey, inventoryValue, createdAt)
+                VALUES (4, 'INSERC Store', 'Tecnología y Comercio', 'Negocio comercial principal',
+                        '#2563EB', 'storefront', 0.0, 1700000000003)
                 """.trimIndent()
             )
         } finally {
@@ -72,7 +80,7 @@ class BusinessDefaultMigrationTest {
             val db = migrated.openHelper.writableDatabase
             db.query("SELECT COUNT(*) FROM businesses").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(2, cursor.getInt(0))
+                assertEquals(3, cursor.getInt(0))
             }
             db.query("SELECT name, inventoryValue FROM businesses WHERE id = 2").use { cursor ->
                 assertTrue(cursor.moveToFirst())
@@ -83,6 +91,11 @@ class BusinessDefaultMigrationTest {
                 assertTrue(cursor.moveToFirst())
                 assertEquals("Mi negocio editado", cursor.getString(0))
                 assertEquals(500.0, cursor.getDouble(1), 0.001)
+            }
+            db.query("SELECT description, inventoryValue FROM businesses WHERE id = 4").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("Negocio comercial principal", cursor.getString(0))
+                assertEquals(0.0, cursor.getDouble(1), 0.001)
             }
             assertEquals(14, db.version)
         } finally {
