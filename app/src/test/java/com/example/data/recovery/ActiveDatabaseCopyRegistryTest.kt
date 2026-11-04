@@ -23,7 +23,7 @@ class ActiveDatabaseCopyRegistryTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        filesRoot = context.filesDir
+        filesRoot = context.filesDir.canonicalFile
         File(filesRoot, "recovery").deleteRecursively()
     }
 
