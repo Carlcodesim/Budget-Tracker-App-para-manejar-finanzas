@@ -32,7 +32,9 @@ object StrictRecoveryCoordinator {
         val validationReport: File,
         val financialReport: File,
         val databaseSha256: String,
-        val roomIdentityHash: String
+        val roomIdentityHash: String,
+        val sourceDatabaseFile: File,
+        val wasPreviouslyAuthorized: Boolean
     )
 
     @Volatile
@@ -189,7 +191,10 @@ object StrictRecoveryCoordinator {
                 validationReport = validated.reportFile.canonicalFile,
                 financialReport = audited.reportFile.canonicalFile,
                 databaseSha256 = audited.databaseSha256After,
-                roomIdentityHash = validated.roomIdentityHash
+                roomIdentityHash = validated.roomIdentityHash,
+                sourceDatabaseFile = sourceFile.canonicalFile,
+                wasPreviouslyAuthorized = source is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy &&
+                    source.explicitlyAuthorized
             )
 
             PreparationResult.ReadyForAuthorization(
@@ -210,9 +215,40 @@ object StrictRecoveryCoordinator {
      * No evidence is retained across process restarts.
      */
     @Synchronized
-    fun authorizeAfterExplicitUserConfirmation(context: Context): AuthorizationResult {
+    fun authorizeAfterExplicitUserConfirmation(context: Context): AuthorizationResult =
+        authorizePending(context, requirePreviouslyAuthorizedSource = false)
+
+    /**
+     * Re-opens only a generation that the user explicitly approved in a prior
+     * process, and only after this process has freshly snapshotted, checked and
+     * audited that same registered source.
+     */
+    @Synchronized
+    fun restorePreviouslyAuthorizedCopy(context: Context): AuthorizationResult =
+        authorizePending(context, requirePreviouslyAuthorizedSource = true)
+
+    private fun authorizePending(
+        context: Context,
+        requirePreviouslyAuthorizedSource: Boolean
+    ): AuthorizationResult {
         val pending = pendingAuthorization
             ?: return AuthorizationResult.Rejected("NO_PENDING_AUTHORIZATION")
+
+        if (requirePreviouslyAuthorizedSource) {
+            if (!pending.wasPreviouslyAuthorized) {
+                pendingAuthorization = null
+                return AuthorizationResult.Rejected("PRIOR_EXPLICIT_AUTHORIZATION_REQUIRED")
+            }
+            val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(context.applicationContext)
+            val sourceStillMatches =
+                source is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy &&
+                    source.explicitlyAuthorized &&
+                    source.file.canonicalFile == pending.sourceDatabaseFile.canonicalFile
+            if (!sourceStillMatches) {
+                pendingAuthorization = null
+                return AuthorizationResult.Rejected("PREVIOUSLY_AUTHORIZED_SOURCE_CHANGED")
+            }
+        }
 
         if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
             pendingAuthorization = null
