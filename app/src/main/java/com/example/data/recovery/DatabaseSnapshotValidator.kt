@@ -371,8 +371,9 @@ object DatabaseSnapshotValidator {
             // This opens only the disposable copy; neither the original nor raw evidence is opened.
             openedDatabase.close()
             sqlite = null
-            if (!validateWithGeneratedRoom(context, databaseCopy)) {
-                return rejectAndClean(workspace, "ROOM_GENERATED_SCHEMA_VALIDATION_FAILED")
+            val roomValidationFailure = validateWithGeneratedRoom(context, databaseCopy)
+            if (roomValidationFailure != null) {
+                return rejectAndClean(workspace, roomValidationFailure)
             }
 
             val roomValidatedDatabase = SQLiteDatabase.openDatabase(
@@ -475,9 +476,13 @@ object DatabaseSnapshotValidator {
         }
     }
 
-    private fun validateWithGeneratedRoom(context: Context, databaseFile: File): Boolean {
-        if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) return false
-        if (!databaseFile.isFile || databaseFile.length() <= 0L) return false
+    private fun validateWithGeneratedRoom(context: Context, databaseFile: File): String? {
+        if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
+            return "ROOM_ACCESS_NOT_QUIESCED"
+        }
+        if (!databaseFile.isFile || databaseFile.length() <= 0L) {
+            return "VALIDATION_WORKSPACE_DATABASE_MISSING"
+        }
 
         val roomDatabase = try {
             Room.databaseBuilder(
@@ -486,23 +491,28 @@ object DatabaseSnapshotValidator {
                 databaseFile.absolutePath
             ).build()
         } catch (_: Exception) {
-            return false
+            return "ROOM_GENERATED_SCHEMA_VALIDATION_FAILED"
         }
 
-        return try {
+        var failure: String? = null
+        try {
             runBlocking(Dispatchers.IO) {
                 roomDatabase.openHelper.writableDatabase
             }
-            true
-        } catch (_: Exception) {
-            false
+        } catch (error: Exception) {
+            failure = if (error.message.orEmpty().contains("identity hash", ignoreCase = true)) {
+                "ROOM_IDENTITY_HASH_MISMATCH"
+            } else {
+                "ROOM_GENERATED_SCHEMA_VALIDATION_FAILED"
+            }
         } finally {
             try {
                 roomDatabase.close()
             } catch (_: Exception) {
-                // A failed close cannot promote this isolated workspace.
+                if (failure == null) failure = "ROOM_VALIDATION_CLOSE_FAILED"
             }
         }
+        return failure
     }
 
     private fun validateRoomSchema(database: SQLiteDatabase): String? {
