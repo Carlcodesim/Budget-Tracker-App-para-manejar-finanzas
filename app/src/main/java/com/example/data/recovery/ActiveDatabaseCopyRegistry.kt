@@ -21,6 +21,8 @@ object ActiveDatabaseCopyRegistry {
 
     private const val REGISTRY_NAME = "active-database.properties"
     private const val TEMP_NAME = "active-database.properties.tmp"
+    private const val REQUIRED_MARKER_NAME = "active-database-required.marker"
+    private const val REQUIRED_MARKER_VALUE = "INSERC_ACTIVE_DATABASE_REQUIRED_1"
     private const val FORMAT = "INSERC_ACTIVE_DATABASE_REGISTRY_1"
     private const val VALIDATION_DIRECTORY = "recovery/validation"
     private const val DATABASE_NAME = "database.sqlite"
@@ -45,9 +47,11 @@ object ActiveDatabaseCopyRegistry {
             val recoveryRoot = recoveryRootRaw.canonicalFile
             val registry = File(recoveryRoot, REGISTRY_NAME)
             val temporary = File(recoveryRoot, TEMP_NAME)
+            val requiredMarker = File(recoveryRoot, REQUIRED_MARKER_NAME)
 
             if (FilesSupport.isSymbolicLink(registry) ||
-                FilesSupport.isSymbolicLink(temporary)
+                FilesSupport.isSymbolicLink(temporary) ||
+                FilesSupport.isSymbolicLink(requiredMarker)
             ) {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_SYMLINK_REJECTED")
             }
@@ -55,6 +59,9 @@ object ActiveDatabaseCopyRegistry {
             if (!registry.exists()) {
                 if (temporary.exists()) {
                     return Source.Rejected("ACTIVE_DATABASE_REGISTRY_RECOVERY_REQUIRED")
+                }
+                if (requiredMarker.exists()) {
+                    return Source.Rejected("ACTIVE_DATABASE_REGISTRY_MISSING_AFTER_ACTIVATION")
                 }
                 return Source.LegacyOriginal(
                     appContext.getDatabasePath("budget_tracker_database").canonicalFile
@@ -176,6 +183,17 @@ object ActiveDatabaseCopyRegistry {
                 output.fd.sync()
             }
             Os.rename(temporary.absolutePath, registry.absolutePath)
+            val requiredMarker = File(recoveryRoot, REQUIRED_MARKER_NAME)
+            if (!requiredMarker.exists()) {
+                val markerTemp = File(recoveryRoot, REQUIRED_MARKER_NAME + ".tmp")
+                FileOutputStream(markerTemp).use { output ->
+                    output.write(REQUIRED_MARKER_VALUE.toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+                Os.rename(markerTemp.absolutePath, requiredMarker.absolutePath)
+            } else if (requiredMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE) {
+                return false
+            }
             true
         } catch (_: Exception) {
             false
