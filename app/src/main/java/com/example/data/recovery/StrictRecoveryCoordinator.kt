@@ -261,6 +261,7 @@ object StrictRecoveryCoordinator {
             if (!ActiveDatabaseCopyRegistry.registerActivatedCopy(
                     context = appContext,
                     snapshotId = pending.snapshotId,
+                    workspaceId = workspace.name,
                     databaseFile = databaseFile,
                     databaseSha256 = pending.databaseSha256
                 )
