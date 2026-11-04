@@ -3,6 +3,7 @@ package com.example.presentation.common.util
 import android.content.Context
 import androidx.room.withTransaction
 import com.example.data.local.AppDatabase
+import com.example.data.recovery.DatabaseAccessGate
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.BusinessEntity
 import com.example.data.local.entity.CategoryEntity
@@ -500,6 +501,12 @@ object BackupManager {
      * Importa y restaura una copia de seguridad JSON guardada previamente.
      */
     suspend fun importBackupFromJson(context: Context, db: AppDatabase, jsonString: String): Int {
+        // JSON restore is a recovery operation, never a write path for the live database.
+        // A staged recovery Room instance is allowed only while the normal access gate is closed
+        // and the app's singleton database has not been opened in this process.
+        check(!DatabaseAccessGate.isNormalAccessAllowed() && !AppDatabase.hasInstance()) {
+            "La restauración JSON está bloqueada mientras la base activa está abierta. Usa el proceso de recuperación aislada."
+        }
         val rootJson = JSONObject(jsonString)
         validateBackupForImport(rootJson)
 
