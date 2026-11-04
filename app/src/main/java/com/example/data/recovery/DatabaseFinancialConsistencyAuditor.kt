@@ -79,7 +79,8 @@ object DatabaseFinancialConsistencyAuditor {
             ) {
                 return Result.Rejected("VALIDATION_WORKSPACE_SYMLINK_REJECTED")
             }
-            if (!workspace.path.startsWith(privateRoot.path + File.separator) ||
+            val validationRoot = File(privateRoot, "recovery/validation").canonicalFile
+            if (!workspace.path.startsWith(validationRoot.path + File.separator) ||
                 workspace.name.isBlank() ||
                 databaseFile.parentFile != workspace ||
                 databaseFile.name != DATABASE_NAME ||
@@ -116,9 +117,6 @@ object DatabaseFinancialConsistencyAuditor {
             }
 
             val issues = mutableListOf<Issue>()
-            val accountIds = readIds(databaseFile, "accounts")
-            val categoryTypes = readCategoryTypes(databaseFile)
-            val goalIds = readIds(databaseFile, "savings_goals")
             var recordsExamined = 0L
 
             // The only SQLite handle in this class is explicitly read-only.
@@ -128,6 +126,9 @@ object DatabaseFinancialConsistencyAuditor {
                 SQLiteDatabase.OPEN_READONLY
             )
             val db = checkNotNull(database)
+            val accountIds = readIds(db, "accounts")
+            val categoryTypes = readCategoryTypes(db)
+            val goalIds = readIds(db, "savings_goals")
 
             recordsExamined += countRows(db, "transactions")
             recordsExamined += countRows(db, "categories")
@@ -461,15 +462,6 @@ object DatabaseFinancialConsistencyAuditor {
             }
         }
     }
-
-    private fun readIds(databaseFile: File, table: String): Set<Long> {
-        val values = linkedSetOf<Long>()
-        // Called only after the read-only connection has been opened by audit.
-        // Use the same connection in the main flow via the overload below.
-        return values
-    }
-
-    private fun readCategoryTypes(databaseFile: File): Map<Long, String> = emptyMap()
 
     private fun readIds(db: SQLiteDatabase, table: String): Set<Long> {
         val values = linkedSetOf<Long>()
