@@ -308,38 +308,39 @@ object DatabaseSnapshotValidator {
             // OPEN_READWRITE is intentional: SQLite may need to replay a copied
             // hot journal or create a private WAL index. CREATE_IF_NECESSARY is
             // deliberately omitted, so a missing copy cannot become an empty DB.
-            sqlite = SQLiteDatabase.openDatabase(
+            val openedDatabase = SQLiteDatabase.openDatabase(
                 databaseCopy.absolutePath,
                 null,
                 SQLiteDatabase.OPEN_READWRITE
             )
+            sqlite = openedDatabase
 
-            val quickCheck = readPragmaRows(sqlite, "PRAGMA quick_check(1)")
+            val quickCheck = readPragmaRows(openedDatabase, "PRAGMA quick_check(1)")
             if (quickCheck != listOf("ok")) {
                 return reject("SQLITE_QUICK_CHECK_FAILED")
             }
 
-            val integrityCheck = readPragmaRows(sqlite, "PRAGMA integrity_check")
+            val integrityCheck = readPragmaRows(openedDatabase, "PRAGMA integrity_check")
             if (integrityCheck != listOf("ok")) {
                 return reject("SQLITE_INTEGRITY_CHECK_FAILED")
             }
 
-            val schemaVersion = sqlite.version
+            val schemaVersion = openedDatabase.version
             if (schemaVersion != CURRENT_SCHEMA_VERSION) {
                 return reject("UNSUPPORTED_SCHEMA_VERSION_$schemaVersion")
             }
 
-            val schemaFailure = validateRoomSchema(sqlite)
+            val schemaFailure = validateRoomSchema(openedDatabase)
             if (schemaFailure != null) {
                 return reject(schemaFailure)
             }
 
-            val identityHash = readRoomIdentityHash(sqlite)
+            val identityHash = readRoomIdentityHash(openedDatabase)
                 ?: return reject("ROOM_IDENTITY_MISSING")
 
             // Validation may have replayed a journal or WAL in this workspace.
             // Close SQLite before publishing evidence so recovery writes are flushed.
-            sqlite.close()
+            openedDatabase.close()
             sqlite = null
 
             val postValidationHash = sha256(databaseCopy)
