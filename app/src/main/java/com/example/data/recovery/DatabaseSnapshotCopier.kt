@@ -37,6 +37,17 @@ object DatabaseSnapshotCopier {
      * validated workspace; arbitrary paths are never accepted.
      */
     fun copyDatabase(context: Context, sourceDatabase: File): SnapshotCopyResult {
+        return copyDatabaseInternal(context, sourceDatabase, allowBootstrapSource = false)
+    }
+
+    fun copyBootstrapDatabase(context: Context, sourceDatabase: File): SnapshotCopyResult =
+        copyDatabaseInternal(context, sourceDatabase, allowBootstrapSource = true)
+
+    private fun copyDatabaseInternal(
+        context: Context,
+        sourceDatabase: File,
+        allowBootstrapSource: Boolean
+    ): SnapshotCopyResult {
         val appContext = context.applicationContext
         if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
             return SnapshotCopyResult.Rejected("ROOM_ACCESS_NOT_QUIESCED")
@@ -49,14 +60,30 @@ object DatabaseSnapshotCopier {
             val canonicalSource = sourceDatabase.canonicalFile
             val original = appContext.getDatabasePath(ORIGINAL_DATABASE_NAME).canonicalFile
             val validationRoot = File(privateRoot, "recovery/validation").canonicalFile
+            val bootstrapRoot = File(privateRoot, "recovery/bootstrap").canonicalFile
             val isOriginal = canonicalSource == original
             val isRegisteredCopyLocation =
                 canonicalSource.path.startsWith(validationRoot.path + File.separator) &&
                     canonicalSource.name == SNAPSHOT_DATABASE_NAME
-            if (!isOriginal && !isRegisteredCopyLocation) {
+            val isBootstrapCopyLocation =
+                canonicalSource.path.startsWith(bootstrapRoot.path + File.separator) &&
+                    canonicalSource.parentFile?.name?.matches(Regex("^[0-9a-fA-F-]{36}$")) == true &&
+                    canonicalSource.name == SNAPSHOT_DATABASE_NAME
+            if (!isOriginal && !isRegisteredCopyLocation && !(allowBootstrapSource && isBootstrapCopyLocation)) {
                 return SnapshotCopyResult.Rejected("SOURCE_DATABASE_PATH_NOT_ALLOWED")
             }
-            if (!isOriginal) {
+            if (isBootstrapCopyLocation) {
+                val sourceSelection = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
+                if (!allowBootstrapSource ||
+                    sourceSelection !is ActiveDatabaseCopyRegistry.Source.LegacyOriginal ||
+                    original.exists() ||
+                    File(original.path + "-wal").exists() ||
+                    File(original.path + "-journal").exists() ||
+                    File(original.path + "-shm").exists()
+                ) {
+                    return SnapshotCopyResult.Rejected("BOOTSTRAP_DATABASE_NOT_ELIGIBLE")
+                }
+            } else if (!isOriginal) {
                 val registered = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
                 val isRegisteredSource = registered is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy &&
                     registered.file.canonicalFile == canonicalSource
@@ -87,7 +114,7 @@ object DatabaseSnapshotCopier {
                 } ?: return SnapshotCopyResult.Rejected("SNAPSHOT_ALREADY_IN_PROGRESS")
 
                 lock.use {
-                    copyUnderLock(canonicalSource, canonicalRecoveryRoot, isOriginal)
+                    copyUnderLock(canonicalSource, canonicalRecoveryRoot, when { isOriginal -> "ORIGINAL_DATABASE"; isBootstrapCopyLocation -> "FRESH_BOOTSTRAP_DATABASE"; else -> "REGISTERED_ACTIVE_COPY" })
                 }
             }
         } catch (_: SecurityException) {
@@ -99,9 +126,9 @@ object DatabaseSnapshotCopier {
         }
     }
 
-    private fun copyUnderLock(original: File, recoveryRoot: File, isOriginal: Boolean): SnapshotCopyResult {
+    private fun copyUnderLock(original: File, recoveryRoot: File, sourceKind: String): SnapshotCopyResult {
         if (!original.isFile || !original.canRead()) {
-            return SnapshotCopyResult.Rejected(if (isOriginal) "ORIGINAL_DATABASE_NOT_READABLE" else "ACTIVE_DATABASE_COPY_NOT_READABLE")
+            return SnapshotCopyResult.Rejected(if (sourceKind == "ORIGINAL_DATABASE") "ORIGINAL_DATABASE_NOT_READABLE" else "ACTIVE_DATABASE_COPY_NOT_READABLE")
         }
 
         val wal = File(original.path + "-wal")
@@ -149,7 +176,7 @@ object DatabaseSnapshotCopier {
             val manifest = Properties().apply {
                 setProperty("format", "INSERC_SQLITE_RAW_SNAPSHOT_1")
                 setProperty("snapshot_id", snapshotId)
-                setProperty("source_kind", if (isOriginal) "ORIGINAL_DATABASE" else "REGISTERED_ACTIVE_COPY")
+                setProperty("source_kind", sourceKind)
                 setProperty("database_sha256", sourceSetBefore.database.sha256)
                 setProperty("database_size", sourceSetBefore.database.length.toString())
                 setProperty("database_last_modified", sourceSetBefore.database.lastModified.toString())
