@@ -58,7 +58,7 @@ class ActiveDatabaseCopyRegistryTest {
         )
 
         val selected = ActiveDatabaseCopyRegistry.sourceForNextValidation(context)
-        assertTrue(selected is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy)
+        assertTrue("Registry source was: $selected", selected is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy)
         selected as ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy
         assertEquals(snapshotId, selected.snapshotId)
         assertEquals(database.canonicalFile, selected.file)
