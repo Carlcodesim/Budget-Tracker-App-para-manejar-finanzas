@@ -111,7 +111,8 @@ object StrictRecoveryCoordinator {
                         preflight.reasonCode == "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT" ||
                         preflight.reasonCode == "ROLLBACK_JOURNAL_PRESENT"
                     )
-            val requiresMigrationRehearsal = preflight.schemaVersion in 9..13 &&
+            val requiresMigrationRehearsal = preflight.schemaVersion != null &&
+                preflight.schemaVersion in 9..13 &&
                 (
                     preflight.condition == DatabaseCondition.LEGACY_MIGRATION_CANDIDATE ||
                         preflight.reasonCode == "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT" ||
