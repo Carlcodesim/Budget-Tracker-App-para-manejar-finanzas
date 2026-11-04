@@ -25,6 +25,7 @@ class ActiveDatabaseCopyRegistryTest {
         context = ApplicationProvider.getApplicationContext()
         filesRoot = context.filesDir.canonicalFile
         File(filesRoot, "recovery").deleteRecursively()
+        File(context.noBackupFilesDir, "active-database-required.marker").delete()
     }
 
     @Test
@@ -93,8 +94,38 @@ class ActiveDatabaseCopyRegistryTest {
     }
 
     @Test
+    fun deletingEntireRecoveryWorkspaceDoesNotFallBackToLegacyOriginal() {
+        val snapshotId = UUID.randomUUID().toString()
+        val workspaceId = UUID.randomUUID().toString()
+        val workspace = File(filesRoot, "recovery/validation/$workspaceId")
+        assertTrue(workspace.mkdirs())
+        val database = File(workspace, "database.sqlite").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+
+        assertTrue(
+            ActiveDatabaseCopyRegistry.registerActivatedCopy(
+                context = context,
+                snapshotId = snapshotId,
+                workspaceId = workspaceId,
+                databaseFile = database,
+                databaseSha256 = sha256(database)
+            )
+        )
+
+        assertTrue(File(filesRoot, "recovery").deleteRecursively())
+        val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(context)
+
+        assertEquals(
+            ActiveDatabaseCopyRegistry.Source.Rejected("ACTIVE_DATABASE_REGISTRY_MISSING_AFTER_ACTIVATION"),
+            source
+        )
+    }
+
+    @Test
     fun corruptRegistryDoesNotFallBackToLegacyOriginal() {
         val recoveryRoot = File(filesRoot, "recovery").apply { mkdirs() }
+        File(context.noBackupFilesDir, "active-database-required.marker").writeText(
+            "INSERC_ACTIVE_DATABASE_REQUIRED_1"
+        )
         File(recoveryRoot, "active-database-required.marker").writeText(
             "INSERC_ACTIVE_DATABASE_REQUIRED_1"
         )

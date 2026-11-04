@@ -50,10 +50,18 @@ object ActiveDatabaseCopyRegistry {
             val registry = File(recoveryRoot, REGISTRY_NAME)
             val temporary = File(recoveryRoot, TEMP_NAME)
             val requiredMarker = File(recoveryRoot, REQUIRED_MARKER_NAME)
+            // Keep the irreversible "active copy was approved" marker outside
+            // recovery/: deleting that whole workspace must not enable legacy fallback.
+            val noBackupRoot = appContext.noBackupFilesDir
+            if (FilesSupport.isSymbolicLink(noBackupRoot)) {
+                return Source.Rejected("ACTIVE_DATABASE_REQUIRED_MARKER_PATH_INVALID")
+            }
+            val durableMarker = File(noBackupRoot, REQUIRED_MARKER_NAME)
 
             if (FilesSupport.isSymbolicLink(registry) ||
                 FilesSupport.isSymbolicLink(temporary) ||
-                FilesSupport.isSymbolicLink(requiredMarker)
+                FilesSupport.isSymbolicLink(requiredMarker) ||
+                FilesSupport.isSymbolicLink(durableMarker)
             ) {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_SYMLINK_REJECTED")
             }
@@ -62,7 +70,7 @@ object ActiveDatabaseCopyRegistry {
                 if (temporary.exists()) {
                     return Source.Rejected("ACTIVE_DATABASE_REGISTRY_RECOVERY_REQUIRED")
                 }
-                if (requiredMarker.exists()) {
+                if (requiredMarker.exists() || durableMarker.exists()) {
                     return Source.Rejected("ACTIVE_DATABASE_REGISTRY_MISSING_AFTER_ACTIVATION")
                 }
                 return Source.LegacyOriginal(
@@ -73,9 +81,11 @@ object ActiveDatabaseCopyRegistry {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_UNREADABLE")
             }
             if (!requiredMarker.isFile ||
-                requiredMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE
+                requiredMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE ||
+                !durableMarker.isFile ||
+                durableMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE
             ) {
-                return Source.Rejected("ACTIVE_DATABASE_REGISTRY_MARKER_INVALID")
+                return Source.Rejected("ACTIVE_DATABASE_REQUIRED_MARKER_INVALID")
             }
 
             val properties = Properties().apply {
@@ -177,6 +187,23 @@ object ActiveDatabaseCopyRegistry {
             val registry = File(recoveryRoot, REGISTRY_NAME)
             val temporary = File(recoveryRoot, TEMP_NAME)
             if (FilesSupport.isSymbolicLink(registry) || FilesSupport.isSymbolicLink(temporary)) {
+                return false
+            }
+
+            // Persist the no-backup marker first. It survives loss of recovery/,
+            // the registry, snapshots and validation workspaces.
+            val noBackupRoot = appContext.noBackupFilesDir
+            if (FilesSupport.isSymbolicLink(noBackupRoot) || !noBackupRoot.isDirectory) return false
+            val durableMarker = File(noBackupRoot, REQUIRED_MARKER_NAME)
+            if (FilesSupport.isSymbolicLink(durableMarker)) return false
+            if (!durableMarker.exists()) {
+                FileOutputStream(durableMarker).use { output ->
+                    output.write(REQUIRED_MARKER_VALUE.toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+            } else if (!durableMarker.isFile ||
+                durableMarker.readText(Charsets.UTF_8) != REQUIRED_MARKER_VALUE
+            ) {
                 return false
             }
 
