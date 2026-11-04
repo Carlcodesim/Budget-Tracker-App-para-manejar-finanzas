@@ -70,9 +70,12 @@ object ActiveDatabaseCopyRegistry {
             val snapshotId = properties.getProperty("snapshot_id")
                 ?.takeIf { it.matches(Regex("^[0-9a-fA-F-]{36}$")) }
                 ?: return Source.Rejected("ACTIVE_DATABASE_REGISTRY_SNAPSHOT_ID_INVALID")
+            val workspaceId = properties.getProperty("workspace_id")
+                ?.takeIf { it.matches(Regex("^[0-9a-fA-F-]{36}$")) }
+                ?: return Source.Rejected("ACTIVE_DATABASE_REGISTRY_WORKSPACE_ID_INVALID")
             val relativePath = properties.getProperty("database_relative_path")
                 ?: return Source.Rejected("ACTIVE_DATABASE_REGISTRY_PATH_MISSING")
-            val expectedRelativePath = "$VALIDATION_DIRECTORY/$snapshotId/$DATABASE_NAME"
+            val expectedRelativePath = "$VALIDATION_DIRECTORY/$workspaceId/$DATABASE_NAME"
             if (relativePath != expectedRelativePath) {
                 return Source.Rejected("ACTIVE_DATABASE_REGISTRY_PATH_INVALID")
             }
@@ -81,7 +84,7 @@ object ActiveDatabaseCopyRegistry {
             val databaseFile = File(filesRoot, relativePath).canonicalFile
             if (!databaseFile.path.startsWith(validationRoot.path + File.separator) ||
                 databaseFile.name != DATABASE_NAME ||
-                databaseFile.parentFile?.name != snapshotId ||
+                databaseFile.parentFile?.name != workspaceId ||
                 !databaseFile.isFile ||
                 FilesSupport.isSymbolicLink(File(filesRoot, relativePath))
             ) {
@@ -102,6 +105,7 @@ object ActiveDatabaseCopyRegistry {
     fun registerActivatedCopy(
         context: Context,
         snapshotId: String,
+        workspaceId: String,
         databaseFile: File,
         databaseSha256: String
     ): Boolean {
@@ -111,10 +115,11 @@ object ActiveDatabaseCopyRegistry {
             val validationRoot = File(filesRoot, VALIDATION_DIRECTORY).canonicalFile
             val canonicalDatabase = databaseFile.canonicalFile
             if (!snapshotId.matches(Regex("^[0-9a-fA-F-]{36}$")) ||
+                !workspaceId.matches(Regex("^[0-9a-fA-F-]{36}$")) ||
                 !databaseSha256.matches(Regex("^[a-fA-F0-9]{64}$")) ||
                 FilesSupport.isSymbolicLink(databaseFile) ||
                 !canonicalDatabase.path.startsWith(validationRoot.path + File.separator) ||
-                canonicalDatabase.parentFile?.name != snapshotId ||
+                canonicalDatabase.parentFile?.name != workspaceId ||
                 canonicalDatabase.name != DATABASE_NAME ||
                 !canonicalDatabase.isFile
             ) {
@@ -122,7 +127,7 @@ object ActiveDatabaseCopyRegistry {
             }
 
             val relativePath = filesRoot.toPath().relativize(canonicalDatabase.toPath()).toString()
-            if (relativePath != "$VALIDATION_DIRECTORY/$snapshotId/$DATABASE_NAME") {
+            if (relativePath != "$VALIDATION_DIRECTORY/$workspaceId/$DATABASE_NAME") {
                 return false
             }
 
@@ -139,6 +144,7 @@ object ActiveDatabaseCopyRegistry {
             val properties = Properties().apply {
                 setProperty("format", FORMAT)
                 setProperty("snapshot_id", snapshotId)
+                setProperty("workspace_id", workspaceId)
                 setProperty("database_relative_path", relativePath)
                 setProperty("database_sha256_at_activation", databaseSha256.lowercase())
                 setProperty("schema_version", "14")
