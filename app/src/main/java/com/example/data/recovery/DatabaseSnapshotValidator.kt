@@ -225,11 +225,13 @@ object DatabaseSnapshotValidator {
         val rawWalPath = File(directory, WAL_NAME)
         val rawJournalPath = File(directory, JOURNAL_NAME)
         val rawManifestPath = File(directory, MANIFEST_NAME)
+        val rawShmPath = File(directory, "database.sqlite-shm")
 
         if (Files.isSymbolicLink(rawDatabasePath.toPath()) ||
             Files.isSymbolicLink(rawWalPath.toPath()) ||
             Files.isSymbolicLink(rawJournalPath.toPath()) ||
-            Files.isSymbolicLink(rawManifestPath.toPath())
+            Files.isSymbolicLink(rawManifestPath.toPath()) ||
+            Files.isSymbolicLink(rawShmPath.toPath())
         ) return null
 
         if (!expectedDatabase.path.startsWith(directory.path + File.separator)) return null
@@ -251,7 +253,6 @@ object DatabaseSnapshotValidator {
         if (snapshot.integrityCertified || snapshot.authorizedForRoom) return null
         if (snapshot.databaseSha256 != manifest.getProperty("database_sha256")) return null
         if (snapshot.sourceWalObserved != (manifest.getProperty("wal_present") == "true")) return null
-        if (snapshot.sourceShmObserved != (manifest.getProperty("shm_observed") == "true")) return null
         if (snapshot.sourceJournalObserved != (manifest.getProperty("journal_present") == "true")) return null
         if (snapshot.walSha256 != manifest.getProperty("wal_sha256")) return null
         if (snapshot.journalSha256 != manifest.getProperty("journal_sha256")) return null
@@ -263,6 +264,9 @@ object DatabaseSnapshotValidator {
         val databaseHash = manifest.getProperty("database_sha256") ?: return null
         if (!expectedDatabase.isFile || sha256(expectedDatabase) != databaseHash) return null
         if (expectedDatabase.length() != manifest.getProperty("database_size")?.toLongOrNull()) return null
+
+        val shmObserved = manifest.getProperty("shm_observed")?.toBooleanStrictOrNull() ?: return null
+        if (snapshot.sourceShmObserved != shmObserved) return null
 
         val walPresent = manifest.getProperty("wal_present")?.toBooleanStrictOrNull() ?: return null
         if (walPresent != expectedWal.isFile) return null
