@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.recovery.DatabaseAccessGate
 import com.example.data.recovery.DatabaseStartupState
 import com.example.data.recovery.StrictRecoveryCoordinator
@@ -62,7 +61,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            val themeMode by themeManager.themeMode.collectAsStateWithLifecycle()
+            val themeMode by themeManager.themeMode.collectAsState()
             val darkTheme = when (themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
