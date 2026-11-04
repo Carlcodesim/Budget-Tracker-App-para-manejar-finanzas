@@ -254,6 +254,22 @@ object BackupManager {
             throw IllegalArgumentException("Versión de respaldo no compatible: $version.")
         }
 
+        // A recovery backup must be complete. Missing collections must never be
+        // interpreted as empty collections because that would silently restore only part
+        // of a user's financial history.
+        val requiredCollections = listOf(
+            "accounts", "categories", "transactions", "reminders",
+            "savingsGoals", "recurringExpenses", "businesses"
+        )
+        requiredCollections.forEach { name ->
+            if (!root.has(name) || root.isNull(name) || root.opt(name) !is JSONArray) {
+                throw IllegalArgumentException("El respaldo está incompleto: falta la lista backup.$name.")
+            }
+        }
+        if (!root.has("preferences") || root.isNull("preferences") || root.opt("preferences") !is JSONObject) {
+            throw IllegalArgumentException("El respaldo está incompleto: falta el objeto backup.preferences.")
+        }
+
         validateRecords(root, "accounts") { record, path ->
             requiredString(record, "name", path)
             requiredString(record, "type", path)
@@ -334,6 +350,39 @@ object BackupManager {
             requiredInteger(record, "createdAt", path)
         }
 
+        // Reject dangling foreign keys before Room starts writing anything.
+        val accountIds = recordIds(root.getJSONArray("accounts"))
+        val categoryIds = recordIds(root.getJSONArray("categories"))
+        val goalIds = recordIds(root.getJSONArray("savingsGoals"))
+        fun requireReference(arrayName: String, field: String, allowedIds: Set<Long>) {
+            val records = root.getJSONArray(arrayName)
+            for (index in 0 until records.length()) {
+                val record = records.getJSONObject(index)
+                val referencedId = requiredInteger(record, field, "$arrayName[$index]")
+                if (referencedId !in allowedIds) {
+                    throw IllegalArgumentException(
+                        "La referencia $arrayName[$index].$field apunta a un registro inexistente ($referencedId)."
+                    )
+                }
+            }
+        }
+        requireReference("transactions", "accountId", accountIds)
+        requireReference("transactions", "categoryId", categoryIds)
+        requireReference("recurringExpenses", "accountId", accountIds)
+        requireReference("recurringExpenses", "categoryId", categoryIds)
+        val reminderRecords = root.getJSONArray("reminders")
+        for (index in 0 until reminderRecords.length()) {
+            val reminder = reminderRecords.getJSONObject(index)
+            if (reminder.has("associatedGoalId") && !reminder.isNull("associatedGoalId")) {
+                val goalId = requiredInteger(reminder, "associatedGoalId", "reminders[$index]")
+                if (goalId !in goalIds) {
+                    throw IllegalArgumentException(
+                        "La referencia reminders[$index].associatedGoalId apunta a una meta inexistente ($goalId)."
+                    )
+                }
+            }
+        }
+
         if (root.has("preferences") && !root.isNull("preferences")) {
             val preferences = root.opt("preferences") as? JSONObject
                 ?: throw IllegalArgumentException("El campo backup.preferences debe ser un objeto.")
@@ -366,6 +415,11 @@ object BackupManager {
             }
         }
     }
+
+    private fun recordIds(records: JSONArray): Set<Long> =
+        (0 until records.length()).map { index ->
+            requiredInteger(records.getJSONObject(index), "id", "records[$index]")
+        }.toSet()
 
     private inline fun validateRecords(
         root: JSONObject,
@@ -448,6 +502,21 @@ object BackupManager {
     suspend fun importBackupFromJson(context: Context, db: AppDatabase, jsonString: String): Int {
         val rootJson = JSONObject(jsonString)
         validateBackupForImport(rootJson)
+
+        // This importer is a full restore, not a merge. It may only target a pristine,
+        // isolated recovery database; never merge a backup into an active or populated DB.
+        val destinationIsEmpty =
+            db.accountDao().getAllAccounts().first().isEmpty() &&
+            db.categoryDao().getAllCategories().first().isEmpty() &&
+            db.transactionDao().getAllTransactions().first().isEmpty() &&
+            db.reminderDao().getAllReminders().first().isEmpty() &&
+            db.savingsGoalDao().getAllSavingsGoals().first().isEmpty() &&
+            db.recurringExpenseDao().getAllRecurringExpensesSync().isEmpty() &&
+            db.businessDao().getAllBusinesses().first().isEmpty()
+        check(destinationIsEmpty) {
+            "La restauración requiere una base de recuperación vacía. No se modificó ningún registro."
+        }
+
         val restoredCount = db.withTransaction {
         var restoredCount = 0
 
