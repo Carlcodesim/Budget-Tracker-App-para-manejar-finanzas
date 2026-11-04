@@ -1,7 +1,7 @@
 package com.example.data.recovery
 
 import android.content.Context
-import android.system.Os
+import java.nio.file.StandardCopyOption
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -199,7 +199,16 @@ object ActiveDatabaseCopyRegistry {
                 properties.store(output, "Active private DB pointer; revalidate before every process activation")
                 output.fd.sync()
             }
-            Os.rename(temporary.absolutePath, registry.absolutePath)
+            try {
+                java.nio.file.Files.move(
+                    temporary.toPath(),
+                    registry.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: Exception) {
+                if (!temporary.renameTo(registry)) return false
+            }
             true
         } catch (_: Exception) {
             false
