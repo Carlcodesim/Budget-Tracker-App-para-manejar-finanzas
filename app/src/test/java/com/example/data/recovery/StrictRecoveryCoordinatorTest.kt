@@ -118,12 +118,33 @@ class StrictRecoveryCoordinatorTest {
     }
 
     @Test
-    fun absentDatabaseStaysBlockedAndDoesNotCreateOrReplaceIt() {
+    fun firstInstallCreatesOnlyAnIsolatedFreshDatabaseWithoutRecurringOrBusinessDefaults() {
         val preparation = StrictRecoveryCoordinator.prepare(context)
-
-        assertTrue(preparation is StrictRecoveryCoordinator.PreparationResult.Blocked)
-        assertFalse(original.exists())
+        assertTrue("Expected fresh bootstrap validation: $preparation",
+            preparation is StrictRecoveryCoordinator.PreparationResult.ReadyForAuthorization)
+        assertFalse("The legacy database location must remain absent", original.exists())
         assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
+
+        val authorization = StrictRecoveryCoordinator.authorizeAfterExplicitUserConfirmation(context)
+        assertTrue("Fresh database should require and accept explicit confirmation: $authorization",
+            authorization is StrictRecoveryCoordinator.AuthorizationResult.Authorized)
+        val activeFile = (authorization as StrictRecoveryCoordinator.AuthorizationResult.Authorized).databaseFile
+
+        val db = SQLiteDatabase.openDatabase(activeFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+        try {
+            fun count(table: String): Int = db.rawQuery("SELECT COUNT(*) FROM $table", null).use {
+                assertTrue(it.moveToFirst())
+                it.getInt(0)
+            }
+            assertEquals(10, count("categories"))
+            assertEquals(4, count("accounts"))
+            assertEquals(0, count("businesses"))
+            assertEquals(0, count("recurring_expenses"))
+        } finally {
+            db.close()
+        }
+        assertFalse("Fresh bootstrap must not create the legacy path", original.exists())
+        assertTrue(DatabaseAccessGate.isNormalAccessAllowed())
     }
 
     private fun createRoomFixture(file: File) {
