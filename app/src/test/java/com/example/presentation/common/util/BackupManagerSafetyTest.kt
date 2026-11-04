@@ -290,7 +290,7 @@ class BackupManagerSafetyTest {
     }
 
     @Test
-    fun failedJsonRestoreRollsBackEarlierInserts() {
+    fun malformedJsonIsRejectedBeforeAnyDatabaseWrite() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
@@ -313,7 +313,7 @@ class BackupManagerSafetyTest {
         """.trimIndent()
 
         try {
-            assertThrows(JSONException::class.java) {
+            assertThrows(IllegalArgumentException::class.java) {
                 runBlocking {
                     BackupManager.importBackupFromJson(context, db, invalidBackup)
                 }
