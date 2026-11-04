@@ -227,6 +227,9 @@ object DatabaseSnapshotValidator {
 
         if (manifest.getProperty("format") != SNAPSHOT_FORMAT) return null
         if (manifest.getProperty("snapshot_id") != snapshot.snapshotId) return null
+        if (snapshot.databaseSha256 != manifest.getProperty("database_sha256")) return null
+        if (snapshot.sourceWalObserved != (manifest.getProperty("wal_present") == "true")) return null
+        if (snapshot.sourceJournalObserved != (manifest.getProperty("journal_present") == "true")) return null
         if (manifest.getProperty("integrity_certified") != "false") return null
         if (manifest.getProperty("normal_access_authorized") != "false") return null
 
@@ -291,6 +294,16 @@ object DatabaseSnapshotValidator {
         }
 
         var sqlite: SQLiteDatabase? = null
+        fun reject(reason: String): SnapshotValidationResult.Rejected {
+            try {
+                sqlite?.close()
+            } catch (_: Exception) {
+                // Do not retain a connection to a rejected validation workspace.
+            }
+            sqlite = null
+            return rejectAndClean(workspace, reason)
+        }
+
         try {
             // OPEN_READWRITE is intentional: SQLite may need to replay a copied
             // hot journal or create a private WAL index. CREATE_IF_NECESSARY is
@@ -303,29 +316,26 @@ object DatabaseSnapshotValidator {
 
             val quickCheck = readPragmaRows(sqlite, "PRAGMA quick_check(1)")
             if (quickCheck != listOf("ok")) {
-                return rejectAndClean(workspace, "SQLITE_QUICK_CHECK_FAILED")
+                return reject("SQLITE_QUICK_CHECK_FAILED")
             }
 
             val integrityCheck = readPragmaRows(sqlite, "PRAGMA integrity_check")
             if (integrityCheck != listOf("ok")) {
-                return rejectAndClean(workspace, "SQLITE_INTEGRITY_CHECK_FAILED")
+                return reject("SQLITE_INTEGRITY_CHECK_FAILED")
             }
 
             val schemaVersion = sqlite.version
             if (schemaVersion != CURRENT_SCHEMA_VERSION) {
-                return rejectAndClean(
-                    workspace,
-                    "UNSUPPORTED_SCHEMA_VERSION_$schemaVersion"
-                )
+                return reject("UNSUPPORTED_SCHEMA_VERSION_$schemaVersion")
             }
 
             val schemaFailure = validateRoomSchema(sqlite)
             if (schemaFailure != null) {
-                return rejectAndClean(workspace, schemaFailure)
+                return reject(schemaFailure)
             }
 
             val identityHash = readRoomIdentityHash(sqlite)
-                ?: return rejectAndClean(workspace, "ROOM_IDENTITY_MISSING")
+                ?: return reject("ROOM_IDENTITY_MISSING")
 
             // Validation may have replayed a journal or WAL in this workspace.
             // Close SQLite before publishing evidence so recovery writes are flushed.
@@ -346,7 +356,8 @@ object DatabaseSnapshotValidator {
                 setProperty("wal_recovery_input_present", (raw.walFile != null).toString())
                 setProperty("journal_recovery_input_present", (raw.journalFile != null).toString())
                 setProperty("schema_validated", "true")
-                setProperty("integrity_certified", "true")
+                setProperty("sqlite_integrity_checks_passed", "true")
+                setProperty("financial_consistency_validated", "false")
                 setProperty("normal_access_authorized", "false")
             }
 
@@ -357,7 +368,7 @@ object DatabaseSnapshotValidator {
                 output.fd.sync()
             }
             if (!tempReport.renameTo(finalReport)) {
-                return rejectAndClean(workspace, "VALIDATION_REPORT_PUBLISH_FAILED")
+                return reject("VALIDATION_REPORT_PUBLISH_FAILED")
             }
 
             return SnapshotValidationResult.Validated(
@@ -370,11 +381,11 @@ object DatabaseSnapshotValidator {
                 quickCheckPassed = true,
                 integrityCheckPassed = true,
                 schemaValidated = true,
-                integrityCertified = true,
+                sqliteIntegrityChecksPassed = true,
                 authorizedForRoom = false
             )
         } catch (_: Exception) {
-            return rejectAndClean(workspace, "SQLITE_OPEN_OR_VALIDATION_FAILED")
+            return reject("SQLITE_OPEN_OR_VALIDATION_FAILED")
         } finally {
             try {
                 sqlite?.close()
@@ -526,7 +537,7 @@ sealed interface SnapshotValidationResult {
         val quickCheckPassed: Boolean,
         val integrityCheckPassed: Boolean,
         val schemaValidated: Boolean,
-        val integrityCertified: Boolean,
+        val sqliteIntegrityChecksPassed: Boolean,
         val authorizedForRoom: Boolean
     ) : SnapshotValidationResult
 
