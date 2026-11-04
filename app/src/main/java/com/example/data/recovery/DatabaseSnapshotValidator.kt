@@ -171,6 +171,7 @@ object DatabaseSnapshotValidator {
         }
 
         val validationRoot = File(appContext.filesDir, VALIDATION_ROOT)
+        var workspace: File? = null
         return try {
             val rawSnapshot = verifyRawSnapshot(appContext, snapshot)
                 ?: return SnapshotValidationResult.Rejected("RAW_SNAPSHOT_MANIFEST_OR_HASH_INVALID")
@@ -188,17 +189,21 @@ object DatabaseSnapshotValidator {
                 return SnapshotValidationResult.Rejected("VALIDATION_PATH_OUTSIDE_PRIVATE_STORAGE")
             }
 
-            val workspace = File(canonicalValidationRoot, UUID.randomUUID().toString())
-            if (!workspace.mkdir()) {
+            val createdWorkspace = File(canonicalValidationRoot, UUID.randomUUID().toString())
+            if (!createdWorkspace.mkdir()) {
                 return SnapshotValidationResult.Rejected("VALIDATION_WORKSPACE_CREATION_FAILED")
             }
+            workspace = createdWorkspace
 
-            validateWorkspace(rawSnapshot, workspace)
+            validateWorkspace(rawSnapshot, createdWorkspace)
         } catch (_: SecurityException) {
+            workspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("VALIDATION_ACCESS_DENIED")
         } catch (_: IOException) {
+            workspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("VALIDATION_IO_FAILURE")
         } catch (_: Exception) {
+            workspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("VALIDATION_FAILED_CLOSED")
         }
     }
@@ -338,10 +343,23 @@ object DatabaseSnapshotValidator {
             val identityHash = readRoomIdentityHash(openedDatabase)
                 ?: return reject("ROOM_IDENTITY_MISSING")
 
+            if (raw.walFile != null && !checkpointWal(openedDatabase)) {
+                return reject("WAL_CHECKPOINT_INCOMPLETE")
+            }
+
             // Validation may have replayed a journal or WAL in this workspace.
-            // Close SQLite before publishing evidence so recovery writes are flushed.
+            // Close SQLite before checking whether recovery sidecars were consumed.
             openedDatabase.close()
             sqlite = null
+
+            val residualJournal = File(databaseCopy.path + "-journal")
+            if (residualJournal.isFile && residualJournal.length() > 0L) {
+                return rejectAndClean(workspace, "ROLLBACK_JOURNAL_RECOVERY_UNRESOLVED")
+            }
+            val residualWal = File(databaseCopy.path + "-wal")
+            if (raw.walFile != null && residualWal.isFile && residualWal.length() > 32L) {
+                return rejectAndClean(workspace, "WAL_CHECKPOINT_REMAINS_UNRESOLVED")
+            }
 
             val postValidationHash = sha256(databaseCopy)
             val report = Properties().apply {
@@ -356,6 +374,7 @@ object DatabaseSnapshotValidator {
                 setProperty("database_sha256_after_validation", postValidationHash)
                 setProperty("wal_recovery_input_present", (raw.walFile != null).toString())
                 setProperty("journal_recovery_input_present", (raw.journalFile != null).toString())
+                setProperty("recovery_sidecars_resolved", "true")
                 setProperty("schema_validated", "true")
                 setProperty("sqlite_integrity_checks_passed", "true")
                 setProperty("financial_consistency_validated", "false")
@@ -455,6 +474,26 @@ object DatabaseSnapshotValidator {
             }
         }
         return null
+    }
+
+    private fun checkpointWal(database: SQLiteDatabase): Boolean {
+        return try {
+            database.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { cursor ->
+                if (!cursor.moveToFirst() || cursor.columnCount < 3) {
+                    false
+                } else {
+                    val busy = cursor.getInt(0)
+                    val logFrames = cursor.getInt(1)
+                    val checkpointedFrames = cursor.getInt(2)
+                    busy == 0 && (
+                        logFrames == checkpointedFrames ||
+                            (logFrames == -1 && checkpointedFrames == -1)
+                        )
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun readRoomIdentityHash(database: SQLiteDatabase): String? {
