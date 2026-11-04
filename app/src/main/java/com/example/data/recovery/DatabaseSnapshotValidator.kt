@@ -35,6 +35,8 @@ object DatabaseSnapshotValidator {
     private const val WAL_NAME = "database.sqlite-wal"
     private const val JOURNAL_NAME = "database.sqlite-journal"
     private const val MANIFEST_NAME = "snapshot-manifest.properties"
+    private const val MIGRATION_ROOT = "recovery/migrations"
+    private const val MIGRATION_REPORT_NAME = "migration-report.properties"
     private const val BUFFER_SIZE = 64 * 1024
 
     private data class ColumnSpec(
@@ -210,6 +212,156 @@ object DatabaseSnapshotValidator {
         } catch (_: Exception) {
             workspace?.let(::deleteTree)
             SnapshotValidationResult.Rejected("VALIDATION_FAILED_CLOSED")
+        }
+    }
+
+    /**
+     * Validates a rehearsed v9-v13 migration by copying that migrated workspace
+     * into a fresh validation generation. It never trusts the migration workspace
+     * as the final validated database and never opens the original/raw snapshot.
+     */
+    fun validateMigrated(
+        context: Context,
+        migration: DatabaseMigrationRehearsal.Migrated
+    ): SnapshotValidationResult {
+        val appContext = context.applicationContext
+        if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
+            return SnapshotValidationResult.Rejected("ROOM_ACCESS_NOT_QUIESCED")
+        }
+
+        val privateRoot = appContext.filesDir.canonicalFile
+        val migrationRoot = File(privateRoot, MIGRATION_ROOT).canonicalFile
+        val workspaceRaw = migration.workspaceDirectory
+        val databaseRaw = migration.databaseFile
+        val reportRaw = migration.reportFile
+        val walRaw = migration.walFile
+        val journalRaw = migration.journalFile
+
+        return try {
+            if (Files.isSymbolicLink(workspaceRaw.toPath()) ||
+                Files.isSymbolicLink(databaseRaw.toPath()) ||
+                Files.isSymbolicLink(reportRaw.toPath()) ||
+                (walRaw != null && Files.isSymbolicLink(walRaw.toPath())) ||
+                (journalRaw != null && Files.isSymbolicLink(journalRaw.toPath()))
+            ) {
+                return SnapshotValidationResult.Rejected("MIGRATION_WORKSPACE_SYMLINK_REJECTED")
+            }
+
+            val workspace = workspaceRaw.canonicalFile
+            val databaseFile = databaseRaw.canonicalFile
+            val reportFile = reportRaw.canonicalFile
+            val walFile = walRaw?.canonicalFile
+            val journalFile = journalRaw?.canonicalFile
+            val expectedDatabase = File(workspace, DATABASE_NAME)
+            val expectedReport = File(workspace, MIGRATION_REPORT_NAME)
+            val expectedWal = File(workspace, WAL_NAME).takeIf { it.isFile }
+            val expectedJournal = File(workspace, JOURNAL_NAME).takeIf { it.isFile }
+
+            if (!workspace.path.startsWith(migrationRoot.path + File.separator) ||
+                workspace.name.isBlank() ||
+                databaseFile != expectedDatabase.canonicalFile ||
+                reportFile != expectedReport.canonicalFile ||
+                walFile != expectedWal?.canonicalFile ||
+                journalFile != expectedJournal?.canonicalFile ||
+                !databaseFile.isFile ||
+                !reportFile.isFile ||
+                File(workspace, "$DATABASE_NAME-shm").exists()
+            ) {
+                return SnapshotValidationResult.Rejected("MIGRATION_WORKSPACE_PATH_INVALID")
+            }
+
+            val evidence = Properties().apply { FileInputStream(reportFile).use(::load) }
+            val sourceVersion = evidence.getProperty("source_schema_version")?.toIntOrNull()
+            val databaseHash = evidence.getProperty("migrated_database_sha256")
+                ?.takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) }
+                ?: return SnapshotValidationResult.Rejected("MIGRATION_DATABASE_HASH_MISSING")
+            val walHash = evidence.getProperty("migrated_wal_sha256")
+            val journalHash = evidence.getProperty("migrated_journal_sha256")
+
+            if (evidence.getProperty("format") != "INSERC_ROOM_MIGRATION_REHEARSAL_1" ||
+                evidence.getProperty("snapshot_id") != migration.snapshotId ||
+                evidence.getProperty("workspace_id") != workspace.name ||
+                sourceVersion !in 9..13 ||
+                sourceVersion != migration.sourceSchemaVersion ||
+                evidence.getProperty("migrated_schema_version") != CURRENT_SCHEMA_VERSION.toString() ||
+                evidence.getProperty("quick_check") != "ok" ||
+                evidence.getProperty("integrity_check") != "ok" ||
+                evidence.getProperty("raw_snapshot_unchanged") != "true" ||
+                evidence.getProperty("migration_completed") != "true" ||
+                evidence.getProperty("normal_access_authorized") != "false" ||
+                evidence.getProperty("room_authorized") != "false" ||
+                databaseHash != migration.databaseSha256 ||
+                walHash != migration.walSha256 ||
+                journalHash != migration.journalSha256
+            ) {
+                return SnapshotValidationResult.Rejected("MIGRATION_EVIDENCE_NOT_ELIGIBLE")
+            }
+
+            if (!sha256(databaseFile).equals(databaseHash, ignoreCase = true)) {
+                return SnapshotValidationResult.Rejected("MIGRATED_DATABASE_HASH_CHANGED")
+            }
+            if (walFile != null && (walHash == null || !sha256(walFile).equals(walHash, true))) {
+                return SnapshotValidationResult.Rejected("MIGRATED_WAL_HASH_CHANGED")
+            }
+            if (journalFile != null &&
+                (journalHash == null || !sha256(journalFile).equals(journalHash, true))
+            ) {
+                return SnapshotValidationResult.Rejected("MIGRATED_JOURNAL_HASH_CHANGED")
+            }
+
+            val preflight = DatabasePreflightInspector.inspect(databaseFile)
+            val allowedSidecar = preflight.reasonCode in setOf(
+                "WAL_SIDECAR_REQUIRES_CONSISTENT_SNAPSHOT",
+                "ROLLBACK_JOURNAL_PRESENT"
+            )
+            if (preflight.schemaVersion != CURRENT_SCHEMA_VERSION ||
+                (preflight.condition != DatabaseCondition.HEADER_RECOGNIZED && !allowedSidecar)
+            ) {
+                return SnapshotValidationResult.Rejected("MIGRATED_DATABASE_HEADER_NOT_SUPPORTED")
+            }
+
+            if (walFile != null && !Files.isRegularFile(walFile.toPath())) {
+                return SnapshotValidationResult.Rejected("MIGRATED_WAL_NOT_REGULAR")
+            }
+            if (journalFile != null && !Files.isRegularFile(journalFile.toPath())) {
+                return SnapshotValidationResult.Rejected("MIGRATED_JOURNAL_NOT_REGULAR")
+            }
+
+            val validationRoot = File(privateRoot, VALIDATION_ROOT)
+            if (!validationRoot.exists() && !validationRoot.mkdirs()) {
+                return SnapshotValidationResult.Rejected("VALIDATION_DIRECTORY_UNAVAILABLE")
+            }
+            if (!validationRoot.isDirectory) {
+                return SnapshotValidationResult.Rejected("VALIDATION_PATH_NOT_A_DIRECTORY")
+            }
+            val canonicalValidationRoot = validationRoot.canonicalFile
+            if (!canonicalValidationRoot.path.startsWith(privateRoot.path + File.separator)) {
+                return SnapshotValidationResult.Rejected("VALIDATION_PATH_OUTSIDE_PRIVATE_STORAGE")
+            }
+            val validationWorkspace = File(canonicalValidationRoot, UUID.randomUUID().toString())
+            if (!validationWorkspace.mkdir()) {
+                return SnapshotValidationResult.Rejected("VALIDATION_WORKSPACE_CREATION_FAILED")
+            }
+
+            validateWorkspace(
+                appContext,
+                RawSnapshot(
+                    snapshotId = migration.snapshotId,
+                    databaseFile = databaseFile,
+                    walFile = walFile,
+                    journalFile = journalFile,
+                    databaseHash = databaseHash,
+                    walHash = walHash,
+                    journalHash = journalHash
+                ),
+                validationWorkspace
+            )
+        } catch (_: SecurityException) {
+            SnapshotValidationResult.Rejected("MIGRATED_VALIDATION_ACCESS_DENIED")
+        } catch (_: IOException) {
+            SnapshotValidationResult.Rejected("MIGRATED_VALIDATION_IO_FAILURE")
+        } catch (_: Exception) {
+            SnapshotValidationResult.Rejected("MIGRATED_VALIDATION_FAILED_CLOSED")
         }
     }
 
