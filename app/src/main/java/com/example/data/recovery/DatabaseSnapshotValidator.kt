@@ -248,11 +248,17 @@ object DatabaseSnapshotValidator {
 
         if (manifest.getProperty("format") != SNAPSHOT_FORMAT) return null
         if (manifest.getProperty("snapshot_id") != snapshot.snapshotId) return null
+        if (snapshot.integrityCertified || snapshot.authorizedForRoom) return null
         if (snapshot.databaseSha256 != manifest.getProperty("database_sha256")) return null
         if (snapshot.sourceWalObserved != (manifest.getProperty("wal_present") == "true")) return null
+        if (snapshot.sourceShmObserved != (manifest.getProperty("shm_observed") == "true")) return null
         if (snapshot.sourceJournalObserved != (manifest.getProperty("journal_present") == "true")) return null
+        if (snapshot.walSha256 != manifest.getProperty("wal_sha256")) return null
+        if (snapshot.journalSha256 != manifest.getProperty("journal_sha256")) return null
         if (manifest.getProperty("integrity_certified") != "false") return null
         if (manifest.getProperty("normal_access_authorized") != "false") return null
+        if (manifest.getProperty("shm_copied") != "false") return null
+        if (File(directory, "database.sqlite-shm").exists()) return null
 
         val databaseHash = manifest.getProperty("database_sha256") ?: return null
         if (!expectedDatabase.isFile || sha256(expectedDatabase) != databaseHash) return null
