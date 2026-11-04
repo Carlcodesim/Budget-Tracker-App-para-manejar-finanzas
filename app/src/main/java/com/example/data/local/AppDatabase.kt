@@ -26,7 +26,6 @@ import com.example.data.recovery.DatabaseAccessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 /**
  * Base de datos Room principal de la aplicación.
@@ -207,33 +206,10 @@ abstract class AppDatabase : RoomDatabase() {
                     candidate.absolutePath
                 ).build()
                 try {
+                    // Recovery workspaces must start with zero user records. The backup
+                    // importer owns the complete dataset; seeding defaults here would
+                    // create phantom accounts/categories or collide with restored IDs.
                     database.openHelper.writableDatabase
-                    runBlocking(Dispatchers.IO) {
-                        database.withTransaction {
-                            database.categoryDao().insertCategories(
-                                listOf(
-                                    CategoryEntity(id = 1, name = "Salario", iconKey = "attach_money", isDefault = true, colorHex = "#10B981", type = "INCOME"),
-                                    CategoryEntity(id = 2, name = "Comida", iconKey = "restaurant", isDefault = true, maxMonthlyBudget = 8000.0, colorHex = "#EF4444", type = "EXPENSE"),
-                                    CategoryEntity(id = 3, name = "Transporte", iconKey = "directions_car", isDefault = true, maxMonthlyBudget = 2000.0, colorHex = "#F59E0B", type = "EXPENSE"),
-                                    CategoryEntity(id = 4, name = "Ocio", iconKey = "sports_esports", isDefault = true, maxMonthlyBudget = 2000.0, colorHex = "#8B5CF6", type = "EXPENSE"),
-                                    CategoryEntity(id = 5, name = "Salud", iconKey = "medical_services", isDefault = true, colorHex = "#EC4899", type = "EXPENSE"),
-                                    CategoryEntity(id = 6, name = "Educación", iconKey = "school", isDefault = true, colorHex = "#3B82F6", type = "EXPENSE"),
-                                    CategoryEntity(id = 7, name = "Servicios", iconKey = "receipt", isDefault = true, maxMonthlyBudget = 5000.0, colorHex = "#06B6D4", type = "EXPENSE"),
-                                    CategoryEntity(id = 8, name = "Otros", iconKey = "category", isDefault = true, colorHex = "#6B7280", type = "EXPENSE"),
-                                    CategoryEntity(id = 9, name = "Negocio", iconKey = "storefront", isDefault = true, colorHex = "#10B981", type = "INCOME"),
-                                    CategoryEntity(id = 10, name = "Transferencia", iconKey = "swap_horiz", isDefault = true, colorHex = "#6366F1", type = "EXPENSE")
-                                )
-                            )
-                            database.accountDao().insertAccounts(
-                                listOf(
-                                    AccountEntity(id = 1, name = "Efectivo", type = "CASH", initialBalance = 0.0, colorHex = "#4CAF50"),
-                                    AccountEntity(id = 2, name = "Cuenta bancaria", type = "BANK", initialBalance = 0.0, colorHex = "#2196F3"),
-                                    AccountEntity(id = 3, name = "Tarjeta de débito", type = "DEBIT", initialBalance = 0.0, colorHex = "#9C27B0"),
-                                    AccountEntity(id = 4, name = "Tarjeta de crédito", type = "CREDIT", initialBalance = 0.0, colorHex = "#FF9800")
-                                )
-                            )
-                        }
-                    }
                 } finally {
                     database.close()
                 }
