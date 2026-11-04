@@ -31,7 +31,9 @@ object ActiveDatabaseCopyRegistry {
         data class LegacyOriginal(val file: File) : Source
         data class PreviouslyActivatedCopy(
             val file: File,
-            val snapshotId: String
+            val snapshotId: String,
+            val workspaceId: String,
+            val explicitlyAuthorized: Boolean
         ) : Source
         data class Rejected(val reasonCode: String) : Source
     }
@@ -88,6 +90,9 @@ object ActiveDatabaseCopyRegistry {
             val workspaceId = properties.getProperty("workspace_id")
                 ?.takeIf { it.matches(Regex("^[0-9a-fA-F-]{36}$")) }
                 ?: return Source.Rejected("ACTIVE_DATABASE_REGISTRY_WORKSPACE_ID_INVALID")
+            if (properties.getProperty("explicit_user_authorization") != "true") {
+                return Source.Rejected("ACTIVE_DATABASE_REGISTRY_AUTHORIZATION_MISSING")
+            }
             val relativePath = properties.getProperty("database_relative_path")
                 ?: return Source.Rejected("ACTIVE_DATABASE_REGISTRY_PATH_MISSING")
             val expectedRelativePath = "$VALIDATION_DIRECTORY/$workspaceId/$DATABASE_NAME"
@@ -114,7 +119,7 @@ object ActiveDatabaseCopyRegistry {
                 return Source.Rejected("REGISTERED_ACTIVE_DATABASE_MISSING_OR_INVALID")
             }
 
-            Source.PreviouslyActivatedCopy(databaseFile, snapshotId)
+            Source.PreviouslyActivatedCopy(databaseFile, snapshotId, workspaceId, explicitlyAuthorized = true)
         } catch (_: Exception) {
             Source.Rejected("ACTIVE_DATABASE_REGISTRY_READ_FAILED_CLOSED")
         }
@@ -194,6 +199,7 @@ object ActiveDatabaseCopyRegistry {
                 setProperty("database_relative_path", relativePath)
                 setProperty("database_sha256_at_activation", databaseSha256.lowercase())
                 setProperty("schema_version", "14")
+                setProperty("explicit_user_authorization", "true")
             }
             FileOutputStream(temporary).use { output ->
                 properties.store(output, "Active private DB pointer; revalidate before every process activation")
