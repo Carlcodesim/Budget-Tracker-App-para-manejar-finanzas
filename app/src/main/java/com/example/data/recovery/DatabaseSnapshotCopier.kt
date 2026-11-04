@@ -24,7 +24,11 @@ object DatabaseSnapshotCopier {
 
     fun copyOriginalDatabase(context: Context): SnapshotCopyResult {
         val appContext = context.applicationContext
-        return copyDatabase(appContext, appContext.getDatabasePath(ORIGINAL_DATABASE_NAME))
+        return when (val source = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)) {
+            is ActiveDatabaseCopyRegistry.Source.LegacyOriginal -> copyDatabase(appContext, source.file)
+            is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy -> copyDatabase(appContext, source.file)
+            is ActiveDatabaseCopyRegistry.Source.Rejected -> SnapshotCopyResult.Rejected(source.reasonCode)
+        }
     }
 
     /**
@@ -38,6 +42,9 @@ object DatabaseSnapshotCopier {
             return SnapshotCopyResult.Rejected("ROOM_ACCESS_NOT_QUIESCED")
         }
         return try {
+            if (java.nio.file.Files.isSymbolicLink(sourceDatabase.toPath())) {
+                return SnapshotCopyResult.Rejected("SOURCE_DATABASE_SYMLINK_REJECTED")
+            }
             val privateRoot = appContext.filesDir.canonicalFile
             val canonicalSource = sourceDatabase.canonicalFile
             val original = appContext.getDatabasePath(ORIGINAL_DATABASE_NAME).canonicalFile
@@ -48,6 +55,14 @@ object DatabaseSnapshotCopier {
                     canonicalSource.name == SNAPSHOT_DATABASE_NAME
             if (!isOriginal && !isRegisteredCopyLocation) {
                 return SnapshotCopyResult.Rejected("SOURCE_DATABASE_PATH_NOT_ALLOWED")
+            }
+            if (!isOriginal) {
+                val registered = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
+                val isRegisteredSource = registered is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy &&
+                    registered.file.canonicalFile == canonicalSource
+                if (!isRegisteredSource) {
+                    return SnapshotCopyResult.Rejected("SOURCE_DATABASE_NOT_REGISTERED_AS_ACTIVE")
+                }
             }
 
             val recoveryRoot = File(appContext.filesDir, RECOVERY_DIRECTORY)
