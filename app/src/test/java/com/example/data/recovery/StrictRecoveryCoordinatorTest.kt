@@ -120,6 +120,7 @@ class StrictRecoveryCoordinatorTest {
     @Test
     fun firstInstallCreatesOnlyAnIsolatedFreshDatabaseWithoutRecurringOrBusinessDefaults() {
         val preparation = StrictRecoveryCoordinator.prepare(context)
+        System.err.println("FIRST_INSTALL_PREPARATION=$preparation")
         assertTrue("Expected fresh bootstrap validation: $preparation",
             preparation is StrictRecoveryCoordinator.PreparationResult.ReadyForAuthorization)
         assertFalse("The legacy database location must remain absent", original.exists())
