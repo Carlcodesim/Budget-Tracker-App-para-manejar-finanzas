@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.data.recovery.DatabaseAccessGate
+import com.example.data.recovery.ActiveDatabaseCopyRegistry
 import com.example.data.recovery.DatabaseStartupState
 import com.example.data.recovery.StrictRecoveryCoordinator
 import com.example.presentation.common.components.PinLockScreen
@@ -81,6 +82,53 @@ class MainActivity : ComponentActivity() {
             var correctPin by remember { mutableStateOf(SecurityManager.getPin(this) ?: "") }
             var isUnlocked by remember {
                 mutableStateOf(!SecurityManager.isPinEnabled(this) || correctPin.isEmpty())
+            }
+
+            // A previous explicit approval is durable, but every new process must
+            // revalidate the registered generation before restoring the in-memory gate.
+            LaunchedEffect(Unit) {
+                if (DatabaseAccessGate.isNormalAccessAllowed()) return@LaunchedEffect
+                val registeredSource = withContext(Dispatchers.IO) {
+                    ActiveDatabaseCopyRegistry.sourceForNextValidation(this@MainActivity)
+                }
+                if (registeredSource !is ActiveDatabaseCopyRegistry.Source.PreviouslyActivatedCopy ||
+                    !registeredSource.explicitlyAuthorized
+                ) {
+                    return@LaunchedEffect
+                }
+
+                isWorking = true
+                statusMessage = "Revalidando la última base autorizada antes de abrir tus finanzas…"
+                val preparation = withContext(Dispatchers.IO) {
+                    StrictRecoveryCoordinator.prepare(this@MainActivity)
+                }
+                when (preparation) {
+                    is StrictRecoveryCoordinator.PreparationResult.ReadyForAuthorization -> {
+                        val restored = withContext(Dispatchers.IO) {
+                            StrictRecoveryCoordinator.restorePreviouslyAuthorizedCopy(this@MainActivity)
+                        }
+                        when (restored) {
+                            is StrictRecoveryCoordinator.AuthorizationResult.Authorized -> {
+                                isAuthorized = DatabaseAccessGate.isNormalAccessAllowed()
+                                if (isAuthorized) {
+                                    app.startDatabaseDependentServicesAfterAuthorization()
+                                    statusMessage = "Tu base autorizada fue revalidada y está lista."
+                                }
+                            }
+                            is StrictRecoveryCoordinator.AuthorizationResult.Rejected -> {
+                                statusMessage = "No se pudo restaurar la base autorizada: ${restored.reasonCode}. La protección continúa activa."
+                            }
+                        }
+                    }
+                    is StrictRecoveryCoordinator.PreparationResult.ManualReviewRequired -> {
+                        reviewFindings = preparation.sampleFindings
+                        statusMessage = "La nueva revisión encontró ${preparation.issueCount} observaciones. Tus datos siguen protegidos y requieren revisión."
+                    }
+                    is StrictRecoveryCoordinator.PreparationResult.Blocked -> {
+                        statusMessage = "${preparation.reasonCode}: ${preparation.message}"
+                    }
+                }
+                isWorking = false
             }
 
             MyApplicationTheme(darkTheme = darkTheme) {
@@ -186,7 +234,7 @@ private fun StrictRecoveryProtectionScreen(
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "La aplicación no abrirá ni migrará la base original. Primero creará una copia privada, validará SQLite y Room y revisará la consistencia financiera en modo de solo lectura.",
+                text = "La primera activación requiere tu confirmación. En los siguientes inicios, la última base autorizada se vuelve a validar antes de abrirla. La base original no se migra ni se reemplaza.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(16.dp))
