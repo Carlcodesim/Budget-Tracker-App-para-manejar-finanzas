@@ -200,3 +200,21 @@ Do not mark a stage complete based only on successful compilation. Do not merge 
 - The financial report is a separate atomic `.properties` file in the validation workspace. The database SHA-256 is compared before and after the read-only scan. The report explicitly records that Room/normal access is not authorized.
 - Added Robolectric coverage for a clean database, multiple inconsistent records (including an overshot savings goal and an incomplete correlated transfer), byte/hash preservation, and rejection when the validated database changes after structural validation.
 - **Scope boundary:** a completed scan means the defined consistency checks ran; it is not a guarantee that all user-specific business rules are correct. Findings require human review and the scan does not fix data. This class is not yet connected to a production recovery coordinator and does not grant access or migrate/activate a database.
+
+
+### Stage 3A — Strict recovery coordinator and explicit activation (implemented; final CI verification pending)
+
+- Added `StrictRecoveryCoordinator` to orchestrate read-only preflight, raw snapshot, isolated SQLite/Room validation, and financial consistency scan. Only a clean v14 database with the current Room identity hash may reach the explicit confirmation stage.
+- Any finding from the financial audit stops activation and returns a manual-review result. Damaged, unknown, future, unsupported legacy versions, and incomplete evidence remain blocked. Automatic migrations and repair are intentionally not attempted.
+- Activation rechecks the validation and financial reports, workspace boundaries, schema version, report flags and database hash. It registers the exact private active copy before asking `DatabaseAccessGate` for a normal-access permit.
+- Added `ActiveDatabaseCopyRegistry`. After the first explicit activation, subsequent launches use that registered private DB as the next snapshot source, not the stale historical database path. If the registry disappears or becomes invalid, the app fails closed rather than silently reverting to an older financial generation.
+- Added an isolated first-install bootstrap. Only when the original database and all its sidecars are absent, a new v14 database may be created under `files/recovery/bootstrap/<UUID>/`, initialized with standard categories and accounts, then copied, validated and audited. It never creates the historical database path and does not seed businesses or recurring expenses.
+- The main activity now exposes a separate user confirmation before activation. The existing navigation and PIN protection return only after the gate confirms the activated path. Database-dependent widget, reminder and recurring schedulers restart only after authorization; workers, receivers and widget entry points remain gated.
+- Android Auto Backup / device transfer excludes the legacy database domain and `files/recovery/`. This prevents an OS-level restore from pairing an old database with a missing or mismatched active-copy registry. Financial data must be backed up through the versioned JSON export/import feature; users should export a fresh JSON backup before changing devices or reinstalling.
+- Added integration tests for first install, explicit authorization, no preseeded businesses/recurring expenses, active-copy selection after a simulated process restart, and refusing silent fallback when the active registry is missing.
+
+### Current release boundary / not yet a merge approval
+
+- The coordinator currently authorizes only exact schema version 14 with the current generated Room identity hash. Versions 9–13 still require a separate migration-rehearsal stage on disposable copies; versions 1–8 have known migration gaps. Do not treat this branch as compatible with every historical database.
+- The first-install and active-generation integration tests are still being debugged in CI. The branch must not be merged until the complete latest-head unit-test and APK-build workflow passes.
+- A final review must inspect the full branch delta (including the pre-existing recurring-expense, backup/import and UI changes), verify all database entry points and background components, and review Android backup behavior. The branch is not merged and `main` remains untouched.
