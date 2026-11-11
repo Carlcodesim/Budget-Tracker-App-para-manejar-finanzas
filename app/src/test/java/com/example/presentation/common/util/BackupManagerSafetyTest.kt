@@ -386,7 +386,7 @@ class BackupManagerSafetyTest {
             BudgetCycleManager.setPredictedIncome(context, null)
             CurrencyFormatter.setCurrency(context, CurrencyFormatter.DEFAULT_CURRENCY_CODE)
 
-            BackupManager.importBackupFromJson(context, db, backup)
+            BackupManager.importBackupFromJson(context, db, backup, applyAppPreferences = true)
 
             assertEquals(30, BudgetCycleManager.getStartDay())
             assertEquals(39000.0, BudgetCycleManager.getPredictedIncome()!!, 0.001)
@@ -475,6 +475,46 @@ class BackupManagerSafetyTest {
             assertEquals(250.0, accounts.single().initialBalance, 0.001)
         } finally {
             db.close()
+        }
+    }
+
+    @Test
+    fun stagedImportDoesNotChangeGlobalPreferences() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val backup = JSONObject().apply {
+            put("version", 1)
+            put("accounts", JSONArray())
+            put("categories", JSONArray())
+            put("transactions", JSONArray())
+            put("reminders", JSONArray())
+            put("savingsGoals", JSONArray())
+            put("recurringExpenses", JSONArray())
+            put("businesses", JSONArray())
+            put("preferences", JSONObject().apply {
+                put("cycleStartDay", 30)
+                put("predictedIncome", 39000.0)
+                put("currencyCode", "USD")
+            })
+        }.toString()
+
+        try {
+            BudgetCycleManager.setStartDay(context, 1)
+            BudgetCycleManager.setPredictedIncome(context, null)
+            CurrencyFormatter.setCurrency(context, CurrencyFormatter.DEFAULT_CURRENCY_CODE)
+
+            BackupManager.importBackupFromJson(context, db, backup, applyAppPreferences = false)
+
+            assertEquals(1, BudgetCycleManager.getStartDay())
+            assertEquals(null, BudgetCycleManager.getPredictedIncome())
+            assertEquals(CurrencyFormatter.DEFAULT_CURRENCY_CODE, CurrencyFormatter.getCurrency())
+        } finally {
+            db.close()
+            BudgetCycleManager.setStartDay(context, 1)
+            BudgetCycleManager.setPredictedIncome(context, null)
+            CurrencyFormatter.setCurrency(context, CurrencyFormatter.DEFAULT_CURRENCY_CODE)
         }
     }
 
