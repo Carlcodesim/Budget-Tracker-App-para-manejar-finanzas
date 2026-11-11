@@ -504,7 +504,7 @@ object BackupManager {
         context: Context,
         db: AppDatabase,
         jsonString: String,
-        applyAppPreferences: Boolean = true
+        applyAppPreferences: Boolean = false
     ): Int {
         // JSON restore is a recovery operation, never a write path for the live database.
         // A staged recovery Room instance is allowed only while the normal access gate is closed
