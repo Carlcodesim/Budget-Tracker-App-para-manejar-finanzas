@@ -756,7 +756,7 @@ object BackupManager {
     private fun applyRestoredPreferences(rootJson: JSONObject) {
         rootJson.optJSONObject("preferences")?.let { preferences ->
             if (preferences.has("cycleStartDay")) {
-                BudgetCycleManager.setStartDay(preferences.getInt("cycleStartDay"))
+                BudgetCycleManager.setStartDay(context, preferences.getInt("cycleStartDay"))
             }
             if (preferences.has("predictedIncome")) {
                 val predictedIncome = if (preferences.isNull("predictedIncome")) {
@@ -764,10 +764,10 @@ object BackupManager {
                 } else {
                     preferences.getDouble("predictedIncome")
                 }
-                BudgetCycleManager.setPredictedIncome(predictedIncome)
+                BudgetCycleManager.setPredictedIncome(context, predictedIncome)
             }
             if (preferences.has("currencyCode")) {
-                CurrencyFormatter.setCurrency(preferences.getString("currencyCode"))
+                CurrencyFormatter.setCurrency(context, preferences.getString("currencyCode"))
             }
         }
     }
