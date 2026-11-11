@@ -733,7 +733,7 @@ object BackupManager {
         // the currently installed app's global preferences. Those are applied only
         // after the staged database has passed validation and explicit authorization.
         if (applyAppPreferences) {
-            applyRestoredPreferences(rootJson)
+            applyRestoredPreferences(context, rootJson)
             setLastBackupTimestamp(context, System.currentTimeMillis())
         }
         return restoredCount
@@ -753,7 +753,7 @@ object BackupManager {
         setLastBackupTimestamp(context, System.currentTimeMillis())
     }
 
-    private fun applyRestoredPreferences(rootJson: JSONObject) {
+    private fun applyRestoredPreferences(context: Context, rootJson: JSONObject) {
         rootJson.optJSONObject("preferences")?.let { preferences ->
             if (preferences.has("cycleStartDay")) {
                 BudgetCycleManager.setStartDay(context, preferences.getInt("cycleStartDay"))
