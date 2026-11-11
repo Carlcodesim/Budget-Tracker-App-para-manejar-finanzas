@@ -175,29 +175,6 @@ fun SettingsScreen(
         }
     }
 
-    val importJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            coroutineScope.launch {
-                try {
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    val jsonString = inputStream?.bufferedReader()?.use { it.readText() }
-                    if (!jsonString.isNullOrEmpty()) {
-                        val db = (context.applicationContext as com.example.BudgetTrackerApp).appContainer.database
-                        val count = BackupManager.importBackupFromJson(context, db, jsonString)
-                        lastBackupTimestamp = BackupManager.getLastBackupTimestamp(context)
-                        snackbarHostState.showSnackbar("¡Restauración exitosa! Se restauraron $count registros.")
-                    } else {
-                        snackbarHostState.showSnackbar("El archivo seleccionado está vacío.")
-                    }
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("Error al restaurar: ${e.localizedMessage}")
-                }
-            }
-        }
-    }
-
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
@@ -1208,15 +1185,14 @@ fun SettingsScreen(
                         Text("Crear Respaldo Completo (JSON)", fontWeight = FontWeight.Bold)
                     }
 
-                    // Botón 2: Restaurar datos desde archivo JSON
+                    // La restauración JSON se habilitará cuando el flujo aislado
+                    // complete importación, auditoría y autorización explícita.
                     OutlinedButton(
                         onClick = {
-                            try {
-                                importJsonLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-                            } catch (e: Exception) {
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Error al abrir selector de archivos: ${e.localizedMessage}")
-                                }
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "La restauración está temporalmente protegida. No se modificó tu base de datos."
+                                )
                             }
                         },
                         modifier = Modifier
