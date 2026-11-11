@@ -500,7 +500,12 @@ object BackupManager {
     /**
      * Importa y restaura una copia de seguridad JSON guardada previamente.
      */
-    suspend fun importBackupFromJson(context: Context, db: AppDatabase, jsonString: String): Int {
+    suspend fun importBackupFromJson(
+        context: Context,
+        db: AppDatabase,
+        jsonString: String,
+        applyAppPreferences: Boolean = true
+    ): Int {
         // JSON restore is a recovery operation, never a write path for the live database.
         // A staged recovery Room instance is allowed only while the normal access gate is closed
         // and the app's singleton database has not been opened in this process.
@@ -724,26 +729,41 @@ object BackupManager {
 
         restoredCount
         }
-        // Restore supported app preferences only after the database transaction succeeds.
+        // During isolated staging, database records may be imported without changing
+        // the currently installed app's global preferences. Those are applied only
+        // after the staged database has passed validation and explicit authorization.
+        if (applyAppPreferences) {
+            applyRestoredPreferencesAfterAuthorization(context, jsonString)
+        }
+        return restoredCount
+    }
+
+    /**
+     * Applies JSON preferences only after the recovery coordinator has granted
+     * normal access to the validated database copy. Safe to call before Room opens.
+     */
+    fun applyRestoredPreferencesAfterAuthorization(context: Context, jsonString: String) {
+        check(DatabaseAccessGate.isNormalAccessAllowed()) {
+            "Las preferencias solo se pueden aplicar después de autorizar la copia recuperada."
+        }
+        val rootJson = JSONObject(jsonString)
+        validateBackupForImport(rootJson)
         rootJson.optJSONObject("preferences")?.let { preferences ->
             if (preferences.has("cycleStartDay")) {
-                BudgetCycleManager.setStartDay(context, preferences.optInt("cycleStartDay", 1))
+                BudgetCycleManager.setStartDay(context, preferences.getInt("cycleStartDay"))
             }
             if (preferences.has("predictedIncome")) {
                 val predictedIncome = if (preferences.isNull("predictedIncome")) {
                     null
                 } else {
-                    preferences.optDouble("predictedIncome").takeIf { it > 0.0 }
+                    preferences.getDouble("predictedIncome")
                 }
                 BudgetCycleManager.setPredictedIncome(context, predictedIncome)
             }
             if (preferences.has("currencyCode")) {
-                CurrencyFormatter.setCurrency(context, preferences.optString("currencyCode", CurrencyFormatter.DEFAULT_CURRENCY_CODE))
+                CurrencyFormatter.setCurrency(context, preferences.getString("currencyCode"))
             }
         }
-
-        // Update the timestamp only after the whole restore transaction succeeds.
         setLastBackupTimestamp(context, System.currentTimeMillis())
-        return restoredCount
     }
 }
