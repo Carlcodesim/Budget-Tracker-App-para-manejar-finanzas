@@ -10,6 +10,11 @@ plugins {
   // alias(libs.plugins.firebase.perf)
 }
 
+// Export Room schemas so future database versions can be reviewed and migration-tested.
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -35,6 +40,10 @@ android {
   }
 
   buildTypes {
+    debug {
+      // Audit builds use a separate package so they can coexist with the user's installed app.
+      applicationIdSuffix = ".audit.v14"
+    }
     release {
       isCrunchPngs = false
       isMinifyEnabled = false
@@ -51,7 +60,20 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+    }
+  }
+}
+
+// Keep recovery-test diagnostics visible in CI, especially fail-closed reason codes.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  testLogging {
+    events("failed", "standardOut", "standardError")
+    showStandardStreams = true
+    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

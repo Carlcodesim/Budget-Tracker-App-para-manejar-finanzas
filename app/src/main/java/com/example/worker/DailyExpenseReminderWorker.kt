@@ -1,5 +1,6 @@
 package com.example.worker
 
+import com.example.data.recovery.DatabaseAccessGate
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -19,6 +20,7 @@ class DailyExpenseReminderWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return@withContext Result.success()
         try {
             val calendar = Calendar.getInstance()
             val currentHour = calendar.get(Calendar.HOUR_OF_DAY)

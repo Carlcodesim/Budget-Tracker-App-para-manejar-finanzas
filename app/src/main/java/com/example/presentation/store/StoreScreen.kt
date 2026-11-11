@@ -224,26 +224,27 @@ fun StoreScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Botón Venta Express rápida
-                SmallFloatingActionButton(
-                    onClick = { showQuickSaleDialog = true },
-                    containerColor = IncomeGreen,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                    modifier = Modifier.testTag("quick_sale_fab")
-                ) {
-                    Icon(Icons.Default.FlashOn, contentDescription = "Venta Rápida Express")
-                }
+                // Solo se permiten operaciones comerciales cuando existe un negocio real.
+                if (state.businesses.isNotEmpty()) {
+                    SmallFloatingActionButton(
+                        onClick = { showQuickSaleDialog = true },
+                        containerColor = IncomeGreen,
+                        contentColor = Color.White,
+                        shape = CircleShape,
+                        modifier = Modifier.testTag("quick_sale_fab")
+                    ) {
+                        Icon(Icons.Default.FlashOn, contentDescription = "Venta Rápida Express")
+                    }
 
-                // Botón FAB principal
-                FloatingActionButton(
-                    onClick = { showAddDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = CircleShape,
-                    modifier = Modifier.testTag("add_store_transaction_fab")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Añadir registro de negocio")
+                    FloatingActionButton(
+                        onClick = { showAddDialog = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = CircleShape,
+                        modifier = Modifier.testTag("add_store_transaction_fab")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Añadir registro de negocio")
+                    }
                 }
             }
         },
@@ -279,6 +280,46 @@ fun StoreScreen(
                                 state.selectedBusiness?.let { businessToDelete = it }
                             }
                         )
+                    }
+
+                    if (state.businesses.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().testTag("empty_business_state"),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Storefront,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(34.dp)
+                                    )
+                                    Text(
+                                        text = "Todavía no tienes negocios registrados",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Crea tu primer negocio para comenzar a registrar ventas, gastos e inventario.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Button(onClick = { showCreateBusinessDialog = true }) {
+                                        Icon(Icons.Default.AddBusiness, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Crear primer negocio")
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Selector de Período Temporal
@@ -321,7 +362,9 @@ fun StoreScreen(
                             periodExpenses = state.periodExpenses,
                             periodProfit = state.periodProfit,
                             currentPeriod = state.currentPeriod,
-                            onEditInventoryClick = { showEditInventoryDialog = true }
+                            onEditInventoryClick = {
+                                if (state.businesses.isNotEmpty()) showEditInventoryDialog = true
+                            }
                         )
                     }
 

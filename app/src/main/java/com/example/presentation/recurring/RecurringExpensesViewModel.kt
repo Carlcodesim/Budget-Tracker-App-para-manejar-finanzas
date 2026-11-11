@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.domain.model.Category
 import com.example.domain.model.ProcessRecurringResult
 import com.example.domain.model.RecurringExpense
+import com.example.domain.model.RecurrenceFrequency
 import com.example.domain.usecase.account.GetAccountsUseCase
 import com.example.domain.usecase.category.GetCategoriesUseCase
 import com.example.domain.usecase.recurring.AddRecurringExpenseUseCase
@@ -80,45 +81,56 @@ class RecurringExpensesViewModel(
         val isAutoProcessing = params[7] as Boolean
 
         val currentYearMonth = getCurrentYearMonth()
-        val currentDay = getCurrentDayOfMonth()
+        val currentCalendar = Calendar.getInstance()
+        val currentDay = currentCalendar.get(Calendar.DAY_OF_MONTH)
+        val monthStart = (currentCalendar.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val nextMonthStart = (currentCalendar.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            add(Calendar.MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val todayStart = (currentCalendar.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
 
-        // Cálculos estadísticos
         val activeExpenses = expenses.filter { it.isEnabled }
-        val totalMonthlyCommitted = activeExpenses.sumOf { it.amount }
-
-        var totalPaid = 0.0
-        var totalPending = 0.0
-        var executedCount = 0
-        var pendingCount = 0
-
-        for (exp in activeExpenses) {
-            if (exp.isExecutedInMonth(currentYearMonth)) {
-                totalPaid += exp.amount
-                executedCount++
-            } else {
-                totalPending += exp.amount
-                pendingCount++
-            }
+        val totalMonthlyCommitted = activeExpenses.sumOf { it.estimatedMonthlyAmount }
+        val totalPaid = activeExpenses.sumOf { it.amountPaidThisMonth }
+        val executedCount = activeExpenses.sumOf { it.paymentCountThisMonth }
+        val pendingCount = activeExpenses.count {
+            val due = it.resolvedNextDueDate()
+            due >= monthStart && due < nextMonthStart
         }
+        val totalPending = (totalMonthlyCommitted - totalPaid).coerceAtLeast(0.0)
 
-        // Próximo gasto a vencer
-        val upcomingUnexecuted = activeExpenses
-            .filter { !it.isExecutedInMonth(currentYearMonth) }
-            .sortedBy {
-                val diff = it.dayOfMonth - currentDay
-                if (diff >= 0) diff else (diff + 31)
-            }
-        val nextDue = upcomingUnexecuted.firstOrNull()
+        val nextDue = activeExpenses.minByOrNull { it.resolvedNextDueDate() }
         val daysUntilNext = nextDue?.let {
-            val diff = it.dayOfMonth - currentDay
-            if (diff >= 0) diff else (diff + 30)
+            val due = Calendar.getInstance().apply { timeInMillis = it.resolvedNextDueDate() }
+            due.set(Calendar.HOUR_OF_DAY, 0)
+            due.set(Calendar.MINUTE, 0)
+            due.set(Calendar.SECOND, 0)
+            due.set(Calendar.MILLISECOND, 0)
+            ((due.timeInMillis - todayStart) / 86_400_000L).toInt()
         }
 
-        // Filtrado
         val filtered = when (filter) {
             RecurringFilter.ALL -> expenses
-            RecurringFilter.PENDING_THIS_MONTH -> expenses.filter { it.isEnabled && !it.isExecutedInMonth(currentYearMonth) }
-            RecurringFilter.EXECUTED_THIS_MONTH -> expenses.filter { it.isExecutedInMonth(currentYearMonth) }
+            RecurringFilter.PENDING_THIS_MONTH -> expenses.filter {
+                it.isEnabled && it.resolvedNextDueDate() >= monthStart && it.resolvedNextDueDate() < nextMonthStart
+            }
+            RecurringFilter.EXECUTED_THIS_MONTH -> expenses.filter { it.paymentCountThisMonth > 0 }
             RecurringFilter.PAUSED -> expenses.filter { !it.isEnabled }
         }
 
@@ -176,7 +188,7 @@ class RecurringExpensesViewModel(
                 if (result.executedCount > 0) {
                     _snackbarMessage.value = "✅ Se crearon ${result.executedCount} transacciones por $${String.format(Locale.US, "%,.2f", result.totalAmount)}."
                 } else {
-                    _snackbarMessage.value = "Al día de hoy no hay más gastos pendientes por crear en este mes."
+                    _snackbarMessage.value = "No hay vencimientos automáticos pendientes por procesar hoy."
                 }
             } catch (e: Exception) {
                 _snackbarMessage.value = "Error al procesar gastos: ${e.message}"
@@ -186,17 +198,17 @@ class RecurringExpensesViewModel(
         }
     }
 
-    fun executeSingleExpenseNow(expense: RecurringExpense) {
+    fun executeSingleExpenseNow(expense: RecurringExpense, paidAmount: Double) {
         viewModelScope.launch {
             try {
-                val success = processRecurringExpensesUseCase.executeNow(expense.id)
+                val success = processRecurringExpensesUseCase.executeNow(expense.id, paidAmount)
                 if (success) {
-                    _snackbarMessage.value = "✅ Transacción generada con éxito para '${expense.title}' por $${String.format(Locale.US, "%,.2f", expense.amount)}."
+                    _snackbarMessage.value = "✅ Pago de '${expense.title}' registrado por RD$" + String.format(Locale.US, "%,.2f", paidAmount) + "."
                 } else {
-                    _snackbarMessage.value = "No se pudo generar la transacción."
+                    _snackbarMessage.value = "No se pudo registrar el pago. Verifica si ya fue registrado este mes."
                 }
             } catch (e: Exception) {
-                _snackbarMessage.value = "Error al generar transacción: ${e.message}"
+                _snackbarMessage.value = "Error al registrar el pago: ${e.message}"
             }
         }
     }
@@ -235,30 +247,58 @@ class RecurringExpensesViewModel(
         dayOfMonth: Int,
         description: String?,
         autoCreate: Boolean,
+        frequency: RecurrenceFrequency,
+        nextDueDate: Long,
         editingId: Long = 0
     ) {
         viewModelScope.launch {
             try {
-                val category = uiState.value.categories.firstOrNull { it.id == categoryId } ?: Category(
-                    id = categoryId,
-                    name = "Otros",
-                    iconKey = "category",
-                    isDefault = true
-                )
-                val account = uiState.value.accounts.firstOrNull { it.id == accountId }
+                val category = uiState.value.categories.firstOrNull {
+                    it.id == categoryId &&
+                        (it.type.equals("EXPENSE", ignoreCase = true) ||
+                            it.type.equals("ALL", ignoreCase = true))
+                } ?: throw IllegalArgumentException("Selecciona una categoría de gasto válida.")
 
-                val recurring = RecurringExpense(
-                    id = editingId,
-                    title = title.trim(),
-                    amount = amount,
-                    category = category,
-                    account = account,
-                    accountId = accountId,
-                    dayOfMonth = dayOfMonth.coerceIn(1, 31),
-                    description = description?.takeIf { it.isNotBlank() },
-                    isEnabled = true,
-                    autoCreate = autoCreate
-                )
+                val account = uiState.value.accounts.firstOrNull { it.id == accountId }
+                    ?: throw IllegalArgumentException("Selecciona una cuenta válida.")
+
+                val existingExpense = if (editingId > 0) {
+                    uiState.value.recurringExpenses.firstOrNull { it.id == editingId }
+                        ?: throw IllegalStateException("No se encontró el gasto recurrente que intentas editar.")
+                } else {
+                    null
+                }
+                val recurring = if (existingExpense != null) {
+                    // Al editar, preservar el estado de pago y la configuración que no cambió el usuario.
+                    existingExpense.copy(
+                        title = title.trim(),
+                        amount = amount,
+                        category = category,
+                        account = account,
+                        accountId = accountId,
+                        dayOfMonth = dayOfMonth.coerceIn(1, 31),
+                        description = description?.takeIf { it.isNotBlank() },
+                        autoCreate = autoCreate,
+                        frequency = frequency,
+                        anchorDate = nextDueDate,
+                        nextDueDate = nextDueDate
+                    )
+                } else {
+                    RecurringExpense(
+                        title = title.trim(),
+                        amount = amount,
+                        category = category,
+                        account = account,
+                        accountId = accountId,
+                        dayOfMonth = dayOfMonth.coerceIn(1, 31),
+                        description = description?.takeIf { it.isNotBlank() },
+                        isEnabled = true,
+                        autoCreate = autoCreate,
+                        frequency = frequency,
+                        anchorDate = nextDueDate,
+                        nextDueDate = nextDueDate
+                    )
+                }
 
                 if (editingId > 0) {
                     updateRecurringExpenseUseCase(recurring)

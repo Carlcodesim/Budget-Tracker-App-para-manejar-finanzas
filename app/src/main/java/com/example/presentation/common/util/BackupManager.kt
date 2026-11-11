@@ -1,12 +1,16 @@
 package com.example.presentation.common.util
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.example.data.local.AppDatabase
+import com.example.data.recovery.DatabaseAccessGate
 import com.example.data.local.entity.AccountEntity
+import com.example.data.local.entity.BusinessEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.SavingsGoalEntity
 import com.example.data.local.entity.TransactionEntity
+import com.example.util.BudgetCycleManager
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
@@ -93,11 +97,19 @@ object BackupManager {
         val reminders = db.reminderDao().getAllReminders().first()
         val savingsGoals = db.savingsGoalDao().getAllSavingsGoals().first()
         val recurringExpenses = db.recurringExpenseDao().getAllRecurringExpensesSync()
+        val businesses = db.businessDao().getAllBusinesses().first()
 
         val rootJson = JSONObject()
         rootJson.put("version", 1)
         rootJson.put("exportDateMillis", System.currentTimeMillis())
         rootJson.put("exportDateFormatted", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
+
+        // Persist financial display settings that would otherwise be lost on reinstall.
+        rootJson.put("preferences", JSONObject().apply {
+            put("cycleStartDay", BudgetCycleManager.getStartDay())
+            put("predictedIncome", BudgetCycleManager.getPredictedIncome() ?: JSONObject.NULL)
+            put("currencyCode", CurrencyFormatter.getCurrency())
+        })
 
         // Accounts
         val accountsArray = JSONArray()
@@ -201,10 +213,30 @@ object BackupManager {
                 rec.lastExecutedMonth?.let { put("lastExecutedMonth", it) }
                 put("autoCreate", rec.autoCreate)
                 put("createdAt", rec.createdAt)
+                put("frequency", rec.frequency)
+                put("anchorDate", rec.anchorDate)
+                put("nextDueDate", rec.nextDueDate)
             }
             recurringArray.put(obj)
         }
         rootJson.put("recurringExpenses", recurringArray)
+
+        // Businesses
+        val businessesArray = JSONArray()
+        businesses.forEach { business ->
+            val obj = JSONObject().apply {
+                put("id", business.id)
+                put("name", business.name)
+                put("type", business.type)
+                put("description", business.description)
+                put("colorHex", business.colorHex)
+                put("iconKey", business.iconKey)
+                put("inventoryValue", business.inventoryValue)
+                put("createdAt", business.createdAt)
+            }
+            businessesArray.put(obj)
+        }
+        rootJson.put("businesses", businessesArray)
 
         // Actualizar sello de fecha de último respaldo
         setLastBackupTimestamp(context, System.currentTimeMillis())
@@ -213,10 +245,291 @@ object BackupManager {
     }
 
     /**
+     * Validate the full JSON structure before starting any Room transaction.
+     * Critical financial values are never silently replaced with opt* defaults.
+     * Optional fields remain optional only where version-1 legacy support is documented.
+     */
+    private fun validateBackupForImport(root: JSONObject) {
+        val version = requiredInteger(root, "version", "backup")
+        if (version != 1L) {
+            throw IllegalArgumentException("Versión de respaldo no compatible: $version.")
+        }
+
+        // A recovery backup must be complete. Missing collections must never be
+        // interpreted as empty collections because that would silently restore only part
+        // of a user's financial history.
+        val requiredCollections = listOf(
+            "accounts", "categories", "transactions", "reminders",
+            "savingsGoals", "recurringExpenses", "businesses"
+        )
+        requiredCollections.forEach { name ->
+            if (!root.has(name) || root.isNull(name) || root.opt(name) !is JSONArray) {
+                throw IllegalArgumentException("El respaldo está incompleto: falta la lista backup.$name.")
+            }
+        }
+        if (!root.has("preferences") || root.isNull("preferences") || root.opt("preferences") !is JSONObject) {
+            throw IllegalArgumentException("El respaldo está incompleto: falta el objeto backup.preferences.")
+        }
+
+        validateRecords(root, "accounts") { record, path ->
+            requiredString(record, "name", path)
+            requiredString(record, "type", path)
+            requiredNumber(record, "initialBalance", path)
+            requiredString(record, "colorHex", path)
+        }
+        validateRecords(root, "categories") { record, path ->
+            requiredString(record, "name", path)
+            requiredString(record, "iconKey", path)
+            requiredBoolean(record, "isDefault", path)
+            optionalNumber(record, "maxMonthlyBudget", path)
+            requiredString(record, "colorHex", path)
+            requiredString(record, "type", path)
+        }
+        validateRecords(root, "transactions") { record, path ->
+            requiredNumber(record, "amount", path)
+            requiredString(record, "type", path)
+            requiredInteger(record, "categoryId", path)
+            requiredString(record, "description", path)
+            requiredInteger(record, "date", path)
+            requiredInteger(record, "accountId", path)
+            optionalString(record, "tags", path)
+        }
+        validateRecords(root, "reminders") { record, path ->
+            requiredString(record, "type", path)
+            requiredString(record, "title", path)
+            requiredString(record, "description", path)
+            requiredBoolean(record, "isEnabled", path)
+            optionalNumber(record, "amount", path)
+            optionalInteger(record, "dueDateDay", path)
+            optionalString(record, "time", path)
+            optionalInteger(record, "notifyDaysBefore", path)
+            optionalString(record, "notifyTime", path)
+            optionalInteger(record, "associatedGoalId", path)
+            optionalBoolean(record, "isCompletedThisMonth", path)
+        }
+        validateRecords(root, "savingsGoals") { record, path ->
+            requiredString(record, "name", path)
+            requiredNumber(record, "targetAmount", path)
+            requiredNumber(record, "currentAmount", path)
+            optionalInteger(record, "deadline", path)
+            requiredInteger(record, "createdAt", path)
+            requiredString(record, "description", path)
+            requiredString(record, "priority", path)
+            requiredString(record, "category", path)
+        }
+        validateRecords(root, "recurringExpenses") { record, path ->
+            requiredString(record, "title", path)
+            requiredNumber(record, "amount", path)
+            requiredInteger(record, "categoryId", path)
+            requiredInteger(record, "accountId", path)
+            requiredInteger(record, "dayOfMonth", path)
+            optionalString(record, "description", path)
+            optionalString(record, "tags", path)
+            requiredBoolean(record, "isEnabled", path)
+            optionalString(record, "lastExecutedMonth", path)
+            optionalBoolean(record, "autoCreate", path)
+            requiredInteger(record, "createdAt", path)
+            // Old version-1 backups predate configurable frequencies and intentionally
+            // retain the MONTHLY / zero-date compatibility defaults.
+            if (record.has("frequency") && !record.isNull("frequency")) {
+                val frequency = requiredString(record, "frequency", path)
+                val supportedFrequencies = setOf("WEEKLY", "BIWEEKLY", "MONTHLY", "YEARLY")
+                if (frequency !in supportedFrequencies) {
+                    throw IllegalArgumentException("El campo $path.frequency contiene una frecuencia no compatible.")
+                }
+            }
+            optionalInteger(record, "anchorDate", path)
+            optionalInteger(record, "nextDueDate", path)
+        }
+        validateRecords(root, "businesses") { record, path ->
+            requiredString(record, "name", path)
+            requiredString(record, "type", path)
+            requiredString(record, "description", path)
+            requiredString(record, "colorHex", path)
+            requiredString(record, "iconKey", path)
+            requiredNumber(record, "inventoryValue", path)
+            requiredInteger(record, "createdAt", path)
+        }
+
+        // Reject dangling foreign keys before Room starts writing anything.
+        val accountIds = recordIds(root.getJSONArray("accounts"))
+        val categoryIds = recordIds(root.getJSONArray("categories"))
+        val goalIds = recordIds(root.getJSONArray("savingsGoals"))
+        fun requireReference(arrayName: String, field: String, allowedIds: Set<Long>) {
+            val records = root.getJSONArray(arrayName)
+            for (index in 0 until records.length()) {
+                val record = records.getJSONObject(index)
+                val referencedId = requiredInteger(record, field, "$arrayName[$index]")
+                if (referencedId !in allowedIds) {
+                    throw IllegalArgumentException(
+                        "La referencia $arrayName[$index].$field apunta a un registro inexistente ($referencedId)."
+                    )
+                }
+            }
+        }
+        requireReference("transactions", "accountId", accountIds)
+        requireReference("transactions", "categoryId", categoryIds)
+        requireReference("recurringExpenses", "accountId", accountIds)
+        requireReference("recurringExpenses", "categoryId", categoryIds)
+        val reminderRecords = root.getJSONArray("reminders")
+        for (index in 0 until reminderRecords.length()) {
+            val reminder = reminderRecords.getJSONObject(index)
+            if (reminder.has("associatedGoalId") && !reminder.isNull("associatedGoalId")) {
+                val goalId = requiredInteger(reminder, "associatedGoalId", "reminders[$index]")
+                if (goalId !in goalIds) {
+                    throw IllegalArgumentException(
+                        "La referencia reminders[$index].associatedGoalId apunta a una meta inexistente ($goalId)."
+                    )
+                }
+            }
+        }
+
+        if (root.has("preferences") && !root.isNull("preferences")) {
+            val preferences = root.opt("preferences") as? JSONObject
+                ?: throw IllegalArgumentException("El campo backup.preferences debe ser un objeto.")
+            if (preferences.has("cycleStartDay") && !preferences.isNull("cycleStartDay")) {
+                val startDay = requiredInteger(preferences, "cycleStartDay", "preferences")
+                if (startDay !in 1L..31L) {
+                    throw IllegalArgumentException("backup.preferences.cycleStartDay debe estar entre 1 y 31.")
+                }
+            }
+            if (preferences.has("predictedIncome") && !preferences.isNull("predictedIncome")) {
+                val predictedIncome = requiredNumber(
+                    preferences, "predictedIncome", "preferences"
+                ).toDouble()
+                val storedIncome = predictedIncome.toFloat()
+                if (predictedIncome <= 0.0 || !storedIncome.isFinite() ||
+                    storedIncome.toDouble() != predictedIncome
+                ) {
+                    throw IllegalArgumentException(
+                        "backup.preferences.predictedIncome no puede conservarse exactamente como preferencia financiera."
+                    )
+                }
+            }
+            if (preferences.has("currencyCode") && !preferences.isNull("currencyCode")) {
+                val currencyCode = requiredString(preferences, "currencyCode", "preferences")
+                if (CurrencyFormatter.availableCurrencies.none { it.code == currencyCode }) {
+                    throw IllegalArgumentException(
+                        "backup.preferences.currencyCode no corresponde a una moneda compatible."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun recordIds(records: JSONArray): Set<Long> =
+        (0 until records.length()).map { index ->
+            requiredInteger(records.getJSONObject(index), "id", "records[$index]")
+        }.toSet()
+
+    private inline fun validateRecords(
+        root: JSONObject,
+        arrayName: String,
+        validateRecord: (JSONObject, String) -> Unit
+    ) {
+        if (!root.has(arrayName)) return
+        val records = root.opt(arrayName) as? JSONArray
+            ?: throw IllegalArgumentException("El campo backup.$arrayName debe ser una lista.")
+        val seenIds = mutableSetOf<Long>()
+        for (index in 0 until records.length()) {
+            val path = "$arrayName[$index]"
+            val record = records.opt(index) as? JSONObject
+                ?: throw IllegalArgumentException("El registro $path debe ser un objeto.")
+            val id = requiredInteger(record, "id", path)
+            if (id <= 0L) {
+                throw IllegalArgumentException("El campo $path.id debe ser un identificador positivo.")
+            }
+            if (!seenIds.add(id)) {
+                throw IllegalArgumentException("El respaldo contiene el identificador duplicado $id en $arrayName.")
+            }
+            validateRecord(record, path)
+        }
+    }
+
+    private fun requiredValue(record: JSONObject, key: String, path: String): Any {
+        if (!record.has(key) || record.isNull(key)) {
+            throw IllegalArgumentException("Falta el campo obligatorio $path.$key.")
+        }
+        return record.opt(key)
+            ?: throw IllegalArgumentException("El campo obligatorio $path.$key está vacío.")
+    }
+
+    private fun requiredString(record: JSONObject, key: String, path: String): String =
+        requiredValue(record, key, path) as? String
+            ?: throw IllegalArgumentException("El campo $path.$key debe ser texto.")
+
+    private fun requiredBoolean(record: JSONObject, key: String, path: String): Boolean =
+        requiredValue(record, key, path) as? Boolean
+            ?: throw IllegalArgumentException("El campo $path.$key debe ser booleano.")
+
+    private fun requiredNumber(record: JSONObject, key: String, path: String): Number {
+        val value = requiredValue(record, key, path) as? Number
+            ?: throw IllegalArgumentException("El campo $path.$key debe ser numérico.")
+        if (!value.toDouble().isFinite()) {
+            throw IllegalArgumentException("El campo $path.$key debe ser un número finito.")
+        }
+        return value
+    }
+
+    private fun requiredInteger(record: JSONObject, key: String, path: String): Long {
+        val number = requiredNumber(record, key, path).toDouble()
+        val integer = number.toLong()
+        if (number != integer.toDouble()) {
+            throw IllegalArgumentException("El campo $path.$key debe ser un entero.")
+        }
+        return integer
+    }
+
+    private fun optionalString(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredString(record, key, path)
+    }
+
+    private fun optionalBoolean(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredBoolean(record, key, path)
+    }
+
+    private fun optionalNumber(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredNumber(record, key, path)
+    }
+
+    private fun optionalInteger(record: JSONObject, key: String, path: String) {
+        if (record.has(key) && !record.isNull(key)) requiredInteger(record, key, path)
+    }
+
+
+    /**
      * Importa y restaura una copia de seguridad JSON guardada previamente.
      */
-    suspend fun importBackupFromJson(context: Context, db: AppDatabase, jsonString: String): Int {
+    suspend fun importBackupFromJson(
+        context: Context,
+        db: AppDatabase,
+        jsonString: String,
+        applyAppPreferences: Boolean = false
+    ): Int {
+        // JSON restore is a recovery operation, never a write path for the live database.
+        // A staged recovery Room instance is allowed only while the normal access gate is closed
+        // and the app's singleton database has not been opened in this process.
+        check(!DatabaseAccessGate.isNormalAccessAllowed() && !AppDatabase.hasInstance()) {
+            "La restauración JSON está bloqueada mientras la base activa está abierta. Usa el proceso de recuperación aislada."
+        }
         val rootJson = JSONObject(jsonString)
+        validateBackupForImport(rootJson)
+
+        // This importer is a full restore, not a merge. It may only target a pristine,
+        // isolated recovery database; never merge a backup into an active or populated DB.
+        val destinationIsEmpty =
+            db.accountDao().getAllAccounts().first().isEmpty() &&
+            db.categoryDao().getAllCategories().first().isEmpty() &&
+            db.transactionDao().getAllTransactions().first().isEmpty() &&
+            db.reminderDao().getAllReminders().first().isEmpty() &&
+            db.savingsGoalDao().getAllSavingsGoals().first().isEmpty() &&
+            db.recurringExpenseDao().getAllRecurringExpensesSync().isEmpty() &&
+            db.businessDao().getAllBusinesses().first().isEmpty()
+        check(destinationIsEmpty) {
+            "La restauración requiere una base de recuperación vacía. No se modificó ningún registro."
+        }
+
+        val restoredCount = db.withTransaction {
         var restoredCount = 0
 
         // Restore Accounts
@@ -365,8 +678,12 @@ object BackupManager {
                         tags = if (obj.has("tags") && !obj.isNull("tags")) obj.getString("tags") else null,
                         isEnabled = obj.optBoolean("isEnabled", true),
                         lastExecutedMonth = if (obj.has("lastExecutedMonth") && !obj.isNull("lastExecutedMonth")) obj.getString("lastExecutedMonth") else null,
-                        autoCreate = obj.optBoolean("autoCreate", true),
-                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                        autoCreate = obj.optBoolean("autoCreate", false),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        // Older JSON backups predate configurable frequencies and remain monthly.
+                        frequency = obj.optString("frequency", "MONTHLY"),
+                        anchorDate = obj.optLong("anchorDate", 0L),
+                        nextDueDate = obj.optLong("nextDueDate", 0L)
                     )
                 )
             }
@@ -376,7 +693,82 @@ object BackupManager {
             }
         }
 
-        setLastBackupTimestamp(context, System.currentTimeMillis())
+        // Restore Businesses (optional for backwards compatibility with older JSON backups).
+        // Ignore only the exact untouched placeholder inserted by old releases; user-created
+        // businesses, including edited businesses with the same name, must be restored.
+        if (rootJson.has("businesses")) {
+            val arr = rootJson.getJSONArray("businesses")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val business = BusinessEntity(
+                    id = obj.optLong("id", 0L),
+                    name = obj.optString("name", "Negocio"),
+                    type = obj.optString("type", "Comercio / Ventas"),
+                    description = obj.optString("description", ""),
+                    colorHex = obj.optString("colorHex", "#2563EB"),
+                    iconKey = obj.optString("iconKey", "storefront"),
+                    inventoryValue = obj.optDouble("inventoryValue", 0.0),
+                    createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                )
+                val isUntouchedLegacyPlaceholder =
+                    business.id == 1L &&
+                    business.name == "INSERC Store" &&
+                    business.type == "Tecnología y Comercio" &&
+                    business.description == "Negocio principal de servicios y venta comercial" &&
+                    business.colorHex == "#2563EB" &&
+                    business.iconKey == "storefront" &&
+                    business.inventoryValue == 0.0 &&
+                    business.createdAt == 1704067200000L
+
+                if (!isUntouchedLegacyPlaceholder) {
+                    db.businessDao().insertBusiness(business)
+                    restoredCount += 1
+                }
+            }
+        }
+
+        restoredCount
+        }
+        // During isolated staging, database records may be imported without changing
+        // the currently installed app's global preferences. Those are applied only
+        // after the staged database has passed validation and explicit authorization.
+        if (applyAppPreferences) {
+            applyRestoredPreferences(context, rootJson)
+            setLastBackupTimestamp(context, System.currentTimeMillis())
+        }
         return restoredCount
+    }
+
+    /**
+     * Applies JSON preferences only after the recovery coordinator has granted
+     * normal access to the validated database copy. Safe to call before Room opens.
+     */
+    fun applyRestoredPreferencesAfterAuthorization(context: Context, jsonString: String) {
+        check(DatabaseAccessGate.isNormalAccessAllowed()) {
+            "Las preferencias solo se pueden aplicar después de autorizar la copia recuperada."
+        }
+        val rootJson = JSONObject(jsonString)
+        validateBackupForImport(rootJson)
+        applyRestoredPreferences(context, rootJson)
+        setLastBackupTimestamp(context, System.currentTimeMillis())
+    }
+
+    private fun applyRestoredPreferences(context: Context, rootJson: JSONObject) {
+        rootJson.optJSONObject("preferences")?.let { preferences ->
+            if (preferences.has("cycleStartDay")) {
+                BudgetCycleManager.setStartDay(context, preferences.getInt("cycleStartDay"))
+            }
+            if (preferences.has("predictedIncome")) {
+                val predictedIncome = if (preferences.isNull("predictedIncome")) {
+                    null
+                } else {
+                    preferences.getDouble("predictedIncome")
+                }
+                BudgetCycleManager.setPredictedIncome(context, predictedIncome)
+            }
+            if (preferences.has("currencyCode")) {
+                CurrencyFormatter.setCurrency(context, preferences.getString("currencyCode"))
+            }
+        }
     }
 }

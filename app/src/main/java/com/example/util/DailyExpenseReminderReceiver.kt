@@ -1,5 +1,6 @@
 package com.example.util
 
+import com.example.data.recovery.DatabaseAccessGate
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ import java.util.Calendar
 class DailyExpenseReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return
         val pendingResult = goAsync()
 
         CoroutineScope(Dispatchers.IO).launch {
