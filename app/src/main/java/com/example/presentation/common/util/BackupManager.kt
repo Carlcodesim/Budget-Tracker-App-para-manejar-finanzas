@@ -733,7 +733,8 @@ object BackupManager {
         // the currently installed app's global preferences. Those are applied only
         // after the staged database has passed validation and explicit authorization.
         if (applyAppPreferences) {
-            applyRestoredPreferencesAfterAuthorization(context, jsonString)
+            applyRestoredPreferences(rootJson)
+            setLastBackupTimestamp(context, System.currentTimeMillis())
         }
         return restoredCount
     }
@@ -748,9 +749,14 @@ object BackupManager {
         }
         val rootJson = JSONObject(jsonString)
         validateBackupForImport(rootJson)
+        applyRestoredPreferences(rootJson)
+        setLastBackupTimestamp(context, System.currentTimeMillis())
+    }
+
+    private fun applyRestoredPreferences(rootJson: JSONObject) {
         rootJson.optJSONObject("preferences")?.let { preferences ->
             if (preferences.has("cycleStartDay")) {
-                BudgetCycleManager.setStartDay(context, preferences.getInt("cycleStartDay"))
+                BudgetCycleManager.setStartDay(preferences.getInt("cycleStartDay"))
             }
             if (preferences.has("predictedIncome")) {
                 val predictedIncome = if (preferences.isNull("predictedIncome")) {
@@ -758,12 +764,11 @@ object BackupManager {
                 } else {
                     preferences.getDouble("predictedIncome")
                 }
-                BudgetCycleManager.setPredictedIncome(context, predictedIncome)
+                BudgetCycleManager.setPredictedIncome(predictedIncome)
             }
             if (preferences.has("currencyCode")) {
-                CurrencyFormatter.setCurrency(context, preferences.getString("currencyCode"))
+                CurrencyFormatter.setCurrency(preferences.getString("currencyCode"))
             }
         }
-        setLastBackupTimestamp(context, System.currentTimeMillis())
     }
 }
