@@ -749,7 +749,7 @@ object BackupManager {
         }
         val rootJson = JSONObject(jsonString)
         validateBackupForImport(rootJson)
-        applyRestoredPreferences(rootJson)
+        applyRestoredPreferences(context, rootJson)
         setLastBackupTimestamp(context, System.currentTimeMillis())
     }
 
