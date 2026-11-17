@@ -84,7 +84,9 @@ object DatabaseSnapshotCopier {
                 canonicalSource.path.startsWith(bootstrapRoot.path + File.separator) &&
                     canonicalSource.parentFile?.name?.matches(Regex("^[0-9a-fA-F-]{36}$")) == true &&
                     canonicalSource.name == SNAPSHOT_DATABASE_NAME
-            if (!isOriginal && !isRegisteredCopyLocation && !(allowBootstrapSource && isBootstrapCopyLocation)) {
+            if (!isOriginal && !isRegisteredCopyLocation &&
+                !((allowBootstrapSource || allowStagedRestoreSource) && isBootstrapCopyLocation)
+            ) {
                 return SnapshotCopyResult.Rejected("SOURCE_DATABASE_PATH_NOT_ALLOWED")
             }
             if (isBootstrapCopyLocation) {
