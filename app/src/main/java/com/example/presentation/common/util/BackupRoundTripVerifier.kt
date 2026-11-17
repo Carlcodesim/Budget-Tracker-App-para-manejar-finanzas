@@ -1,5 +1,6 @@
 package com.example.presentation.common.util
 
+import java.math.BigDecimal
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -67,7 +68,7 @@ object BackupRoundTripVerifier {
             }
 
             (expectedById.keys intersect actualById.keys).sorted().forEach { id ->
-                if (!expectedById.getValue(id).similar(actualById.getValue(id))) {
+                if (!jsonValuesEqual(expectedById.getValue(id), actualById.getValue(id))) {
                     mismatches += "$collection#$id: uno o más campos no coinciden"
                 }
             }
@@ -94,5 +95,43 @@ object BackupRoundTripVerifier {
             if (indexed.put(id, record) != null) return null
         }
         return indexed
+    }
+
+    /**
+     * Structural JSON equality that does not depend on JSONObject.similar(),
+     * which is not available in the Android org.json API used by this project.
+     * Object key order is ignored; array order remains significant.
+     */
+    private fun jsonValuesEqual(expected: Any?, actual: Any?): Boolean {
+        if (expected === JSONObject.NULL || actual === JSONObject.NULL) {
+            return expected === actual
+        }
+        if (expected == null || actual == null) return expected == actual
+
+        if (expected is JSONObject && actual is JSONObject) {
+            val expectedKeys = expected.keys().asSequence().toSet()
+            val actualKeys = actual.keys().asSequence().toSet()
+            if (expectedKeys != actualKeys) return false
+            return expectedKeys.all { key ->
+                jsonValuesEqual(expected.opt(key), actual.opt(key))
+            }
+        }
+
+        if (expected is JSONArray && actual is JSONArray) {
+            if (expected.length() != actual.length()) return false
+            return (0 until expected.length()).all { index ->
+                jsonValuesEqual(expected.opt(index), actual.opt(index))
+            }
+        }
+
+        if (expected is Number && actual is Number) {
+            return try {
+                BigDecimal(expected.toString()).compareTo(BigDecimal(actual.toString())) == 0
+            } catch (_: NumberFormatException) {
+                expected.toDouble() == actual.toDouble()
+            }
+        }
+
+        return expected == actual
     }
 }
