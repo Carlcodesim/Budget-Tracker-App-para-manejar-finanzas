@@ -106,4 +106,29 @@ class DatabaseSnapshotCopierTest {
         assertFalse(first.authorizedForRoom)
         assertFalse(second.authorizedForRoom)
     }
+
+    @Test
+    fun stagedJsonRestoreCanBeSnapshottedWhileLegacyOriginalExistsWithoutChangingIt() {
+        val legacyBytes = ByteArray(1536) { (it % 197).toByte() }
+        original.writeBytes(legacyBytes)
+
+        val restoreId = java.util.UUID.randomUUID().toString()
+        val restoreDirectory = File(context.filesDir, "recovery/bootstrap/$restoreId")
+        assertTrue(restoreDirectory.mkdirs())
+        val stagedDatabase = File(restoreDirectory, "database.sqlite")
+        val stagedBytes = ByteArray(3072) { (it % 223).toByte() }
+        stagedDatabase.writeBytes(stagedBytes)
+
+        val result = DatabaseSnapshotCopier.copyStagedRestoreDatabase(context, stagedDatabase)
+
+        assertTrue("Staged JSON restore should be copied independently: $result",
+            result is SnapshotCopyResult.Created)
+        val created = result as SnapshotCopyResult.Created
+        assertArrayEquals(stagedBytes, created.databaseFile.readBytes())
+        assertArrayEquals("The quarantined legacy source must remain byte-identical",
+            legacyBytes, original.readBytes())
+        assertFalse(created.authorizedForRoom)
+        assertFalse(DatabaseAccessGate.isNormalAccessAllowed())
+    }
+
 }
