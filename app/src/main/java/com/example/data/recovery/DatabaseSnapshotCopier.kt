@@ -43,10 +43,25 @@ object DatabaseSnapshotCopier {
     fun copyBootstrapDatabase(context: Context, sourceDatabase: File): SnapshotCopyResult =
         copyDatabaseInternal(context, sourceDatabase, allowBootstrapSource = true)
 
+    /**
+     * Copies a JSON-restored database from its unique bootstrap workspace.
+     * Unlike an empty first-install bootstrap, this path remains eligible when a
+     * quarantined legacy database exists. It never reads, moves, or changes that
+     * legacy database; only the explicitly supplied staged restore is copied.
+     */
+    fun copyStagedRestoreDatabase(context: Context, sourceDatabase: File): SnapshotCopyResult =
+        copyDatabaseInternal(
+            context,
+            sourceDatabase,
+            allowBootstrapSource = false,
+            allowStagedRestoreSource = true
+        )
+
     private fun copyDatabaseInternal(
         context: Context,
         sourceDatabase: File,
-        allowBootstrapSource: Boolean
+        allowBootstrapSource: Boolean,
+        allowStagedRestoreSource: Boolean = false
     ): SnapshotCopyResult {
         val appContext = context.applicationContext
         if (DatabaseAccessGate.isNormalAccessAllowed() || AppDatabase.hasInstance()) {
@@ -73,15 +88,23 @@ object DatabaseSnapshotCopier {
                 return SnapshotCopyResult.Rejected("SOURCE_DATABASE_PATH_NOT_ALLOWED")
             }
             if (isBootstrapCopyLocation) {
-                val sourceSelection = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
-                if (!allowBootstrapSource ||
-                    sourceSelection !is ActiveDatabaseCopyRegistry.Source.LegacyOriginal ||
-                    original.exists() ||
-                    File(original.path + "-wal").exists() ||
-                    File(original.path + "-journal").exists() ||
-                    File(original.path + "-shm").exists()
-                ) {
-                    return SnapshotCopyResult.Rejected("BOOTSTRAP_DATABASE_NOT_ELIGIBLE")
+                if (allowStagedRestoreSource) {
+                    // JSON restore is a separate, user-selected recovery source.
+                    // The legacy original may exist, but it is never used as input.
+                    if (allowBootstrapSource) {
+                        return SnapshotCopyResult.Rejected("AMBIGUOUS_BOOTSTRAP_SOURCE_MODE")
+                    }
+                } else {
+                    val sourceSelection = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
+                    if (!allowBootstrapSource ||
+                        sourceSelection !is ActiveDatabaseCopyRegistry.Source.LegacyOriginal ||
+                        original.exists() ||
+                        File(original.path + "-wal").exists() ||
+                        File(original.path + "-journal").exists() ||
+                        File(original.path + "-shm").exists()
+                    ) {
+                        return SnapshotCopyResult.Rejected("BOOTSTRAP_DATABASE_NOT_ELIGIBLE")
+                    }
                 }
             } else if (!isOriginal) {
                 val registered = ActiveDatabaseCopyRegistry.sourceForNextValidation(appContext)
