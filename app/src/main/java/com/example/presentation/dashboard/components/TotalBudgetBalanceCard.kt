@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.BalanceSummary
 import com.example.presentation.common.util.CurrencyFormatter
 
@@ -227,7 +228,10 @@ fun TotalBudgetBalanceCard(
                     }
 
                     // Badge del Ciclo Financiero
-                    val cycleRange = remember { com.example.util.BudgetCycleManager.getCurrentCycleRange() }
+                    val cycleStartDay by com.example.util.BudgetCycleManager.startDayFlow.collectAsStateWithLifecycle()
+                    val cycleRange = remember(cycleStartDay) {
+                        com.example.util.BudgetCycleManager.getCurrentCycleRange(cycleStartDay)
+                    }
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color.White.copy(alpha = 0.14f),

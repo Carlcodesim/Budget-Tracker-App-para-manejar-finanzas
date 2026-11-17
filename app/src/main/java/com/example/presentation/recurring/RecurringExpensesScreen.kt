@@ -75,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.presentation.recurring.components.RecurringExpenseFormSheet
 import com.example.presentation.recurring.components.RecurringExpenseItemCard
+import com.example.domain.model.calculateNextDueDate
+import java.util.Calendar
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,7 +109,7 @@ fun RecurringExpensesScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Cobros y suscripciones automáticas",
+                            text = "Pagos periódicos y gastos programados",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -137,7 +139,7 @@ fun RecurringExpensesScreen(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Sync,
-                                contentDescription = "Verificar y procesar cobros",
+                                contentDescription = "Verificar gastos con automatización activada",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -185,11 +187,12 @@ fun RecurringExpensesScreen(
                         pendingCount = uiState.pendingCountThisMonth,
                         nextDueDays = uiState.daysUntilNextDue,
                         nextDueTitle = uiState.nextDueExpense?.title,
-                        onProcessAllClick = { viewModel.syncAndProcessNow(forceAllDue = true) }
+                        nextDueAutoCreate = uiState.nextDueExpense?.autoCreate == true,
+                        onProcessAllClick = { viewModel.syncAndProcessNow(forceAllDue = false) }
                     )
                 }
 
-                // Calendario de Distribución de Cobros en el Mes
+                // Calendario de pagos recurrentes del mes
                 if (uiState.recurringExpenses.isNotEmpty()) {
                     item {
                         MonthlyScheduleStrip(
@@ -229,7 +232,7 @@ fun RecurringExpensesScreen(
                         FilterChip(
                             selected = uiState.selectedFilter == RecurringFilter.EXECUTED_THIS_MONTH,
                             onClick = { viewModel.setFilter(RecurringFilter.EXECUTED_THIS_MONTH) },
-                            label = { Text("Cobrados (${uiState.executedCountThisMonth})") },
+                            label = { Text("Registrados (${uiState.executedCountThisMonth})") },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.CheckCircle,
@@ -270,7 +273,7 @@ fun RecurringExpensesScreen(
                             expense = expense,
                             currentYearMonth = uiState.currentYearMonth,
                             currentDay = uiState.currentDayOfMonth,
-                            onExecuteNow = { viewModel.executeSingleExpenseNow(expense) },
+                            onExecuteNow = { paidAmount -> viewModel.executeSingleExpenseNow(expense, paidAmount) },
                             onToggleEnabled = { isChecked ->
                                 viewModel.toggleExpenseStatus(expense, isChecked)
                             },
@@ -292,7 +295,7 @@ fun RecurringExpensesScreen(
                     initialExpense = uiState.editingExpense,
                     categories = uiState.categories,
                     accounts = uiState.accounts,
-                    onSave = { title, amount, categoryId, accountId, dayOfMonth, desc, autoCreate ->
+                    onSave = { title, amount, categoryId, accountId, dayOfMonth, desc, autoCreate, frequency, nextDueDate ->
                         viewModel.saveRecurringExpense(
                             title = title,
                             amount = amount,
@@ -301,6 +304,8 @@ fun RecurringExpensesScreen(
                             dayOfMonth = dayOfMonth,
                             description = desc,
                             autoCreate = autoCreate,
+                            frequency = frequency,
+                            nextDueDate = nextDueDate,
                             editingId = uiState.editingExpense?.id ?: 0L
                         )
                     },
@@ -320,6 +325,7 @@ private fun RecurringSummaryHeroCard(
     pendingCount: Int,
     nextDueDays: Int?,
     nextDueTitle: String?,
+    nextDueAutoCreate: Boolean,
     onProcessAllClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -344,7 +350,7 @@ private fun RecurringSummaryHeroCard(
             ) {
                 Column {
                     Text(
-                        text = "TOTAL MENSUAL COMPROMETIDO",
+                        text = "TOTAL MENSUAL ESTIMADO",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
@@ -375,7 +381,7 @@ private fun RecurringSummaryHeroCard(
                 }
             }
 
-            // Barra de Progreso del Mes: Pagado vs Total
+            // Barra de progreso de pagos registrados frente al total programado
             val progress = if (totalCommitted > 0) (totalPaid / totalCommitted).toFloat().coerceIn(0f, 1f) else 0f
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
@@ -388,7 +394,7 @@ private fun RecurringSummaryHeroCard(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "$paidCount de ${paidCount + pendingCount} cobros",
+                        text = "$paidCount de ${paidCount + pendingCount} pagos del mes",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -406,7 +412,7 @@ private fun RecurringSummaryHeroCard(
                 )
             }
 
-            // Fila de Métricas: Cobrado vs Pendiente
+            // Fila de métricas: registrado vs por registrar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -418,7 +424,7 @@ private fun RecurringSummaryHeroCard(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "Cobrado este mes",
+                            text = "Registrado este mes",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -438,7 +444,7 @@ private fun RecurringSummaryHeroCard(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "Pendiente este mes",
+                            text = "Por registrar este mes",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -474,14 +480,21 @@ private fun RecurringSummaryHeroCard(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Próximo cobro: $nextDueTitle",
+                                text = "Próximo vencimiento: $nextDueTitle",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = if (nextDueDays == 0) "¡Vence hoy! El sistema lo creará automáticamente."
-                                else if (nextDueDays > 0) "Faltan $nextDueDays días para su cobro."
-                                else "Pendiente de ejecución.",
+                                text = when {
+                                    nextDueDays == 0 && nextDueAutoCreate ->
+                                        "La generación automática está activada para hoy."
+                                    nextDueDays == 0 ->
+                                        "Fecha de pago hoy. Registra el movimiento cuando pagues."
+                                    nextDueAutoCreate ->
+                                        "Faltan $nextDueDays días para el registro automático."
+                                    else ->
+                                        "Faltan $nextDueDays días para su fecha de pago."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -529,7 +542,7 @@ private fun MonthlyScheduleStrip(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Calendario de Cobros",
+                        text = "Calendario de pagos",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -543,8 +556,40 @@ private fun MonthlyScheduleStrip(
                 )
             }
 
-            // Tira horizontal de días con cobros
-            val activeExpensesByDay = expenses.filter { it.isEnabled }.groupBy { it.dayOfMonth }
+            // Tira horizontal de fechas de pago
+            val currentCalendar = Calendar.getInstance()
+            val monthStart = (currentCalendar.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val monthEnd = (currentCalendar.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            // Mostrar todas las ocurrencias del periodo, no solo el próximo vencimiento.
+            val activeExpensesByDay = mutableMapOf<Int, MutableList<com.example.domain.model.RecurringExpense>>()
+            expenses.filter { it.isEnabled }.forEach { expense ->
+                var occurrence = expense.resolvedNextDueDate()
+                val anchor = expense.anchorDate.takeIf { it > 0L } ?: occurrence
+                var safetyCounter = 0
+                while (occurrence < monthEnd && safetyCounter < 8) {
+                    if (occurrence >= monthStart) {
+                        val day = Calendar.getInstance().apply { timeInMillis = occurrence }
+                            .get(Calendar.DAY_OF_MONTH)
+                        activeExpensesByDay.getOrPut(day) { mutableListOf() }.add(expense)
+                    }
+                    occurrence = calculateNextDueDate(occurrence, expense.frequency, anchor)
+                    safetyCounter++
+                }
+            }
             val sortedDays = activeExpensesByDay.keys.sorted()
 
             Row(
@@ -555,18 +600,12 @@ private fun MonthlyScheduleStrip(
             ) {
                 sortedDays.forEach { day ->
                     val dayExpenses = activeExpensesByDay[day] ?: emptyList()
-                    val allExecuted = dayExpenses.all { it.isExecutedInMonth(currentYearMonth) }
                     val isToday = day == currentDay
-                    val isPast = day < currentDay
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = if (isToday) {
                             MaterialTheme.colorScheme.primaryContainer
-                        } else if (allExecuted) {
-                            MaterialTheme.colorScheme.surface
-                        } else if (isPast) {
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
                         } else {
                             MaterialTheme.colorScheme.surface
                         },
@@ -588,7 +627,7 @@ private fun MonthlyScheduleStrip(
                                 color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "${dayExpenses.size} ${if (dayExpenses.size == 1) "gasto" else "gastos"}",
+                                text = "${dayExpenses.size} ${if (dayExpenses.size == 1) "vencimiento" else "vencimientos"}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -596,7 +635,7 @@ private fun MonthlyScheduleStrip(
                                 text = "$${String.format(Locale.US, "%,.0f", dayExpenses.sumOf { it.amount })}",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (allExecuted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -647,8 +686,8 @@ private fun EmptyRecurringState(
                 text = when (filter) {
                     RecurringFilter.ALL -> "No tienes gastos recurrentes programados"
                     RecurringFilter.PENDING_THIS_MONTH -> "No hay gastos pendientes este mes"
-                    RecurringFilter.EXECUTED_THIS_MONTH -> "Aún no se han cobrado gastos este mes"
-                    RecurringFilter.PAUSED -> "No tienes suscripciones o cobros pausados"
+                    RecurringFilter.EXECUTED_THIS_MONTH -> "Aún no has registrado pagos este mes"
+                    RecurringFilter.PAUSED -> "No tienes pagos recurrentes pausados"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
@@ -656,7 +695,7 @@ private fun EmptyRecurringState(
             )
 
             Text(
-                text = "Programa suscripciones como Netflix, internet, servicios públicos o cuotas fijas para que se generen transacciones automáticamente en su fecha.",
+                text = "Agrega tus propios pagos periódicos. Define el importe, la categoría, la cuenta y la fecha; registra cada pago cuando realmente lo realices. La automatización es opcional.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center

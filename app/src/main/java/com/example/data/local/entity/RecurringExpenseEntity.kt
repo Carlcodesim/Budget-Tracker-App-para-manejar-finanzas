@@ -1,5 +1,6 @@
 package com.example.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -22,12 +23,15 @@ data class RecurringExpenseEntity(
     val title: String,
     val amount: Double,
     val categoryId: Long,
-    val accountId: Long = 1L,
+    val accountId: Long = 0L,
     val dayOfMonth: Int, // Día del mes en que se ejecuta el gasto (1..31)
     val description: String? = null,
     val tags: String? = null,
     val isEnabled: Boolean = true,
     val lastExecutedMonth: String? = null, // Formato "yyyy-MM" para evitar cobros duplicados en el mismo mes
-    val autoCreate: Boolean = true, // Si es true, el sistema crea la transacción automáticamente en la fecha
-    val createdAt: Long = System.currentTimeMillis()
+    val autoCreate: Boolean = false, // La creación automática requiere activación explícita
+    val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "'MONTHLY'") val frequency: String = "MONTHLY",
+    @ColumnInfo(defaultValue = "0") val anchorDate: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val nextDueDate: Long = 0L
 )

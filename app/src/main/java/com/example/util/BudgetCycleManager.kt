@@ -127,12 +127,13 @@ object BudgetCycleManager {
         startDay: Int = getStartDay(),
         nowMillis: Long = System.currentTimeMillis()
     ): BudgetCycleRange {
+        val normalizedStartDay = startDay.coerceIn(1, 31)
         val startCal = Calendar.getInstance()
         val endCal = Calendar.getInstance()
 
         val cycleMonthName = "${monthNamesSpanish[month]} $year"
 
-        if (startDay == 1) {
+        if (normalizedStartDay == 1) {
             // Mes calendario estándar: 1ro del mes al último día del mes
             startCal.apply {
                 set(Calendar.YEAR, year)
@@ -184,9 +185,10 @@ object BudgetCycleManager {
                 isCurrentCycle = isCurrentCycle
             )
         } else {
-            // Ciclo personalizado: Inicia en el mes anterior en el día de corte
-            // y culmina en el mes objetivo el día (startDay - 1)
+            // Establecer el día 1 antes de cambiar año/mes evita que Calendar
+            // desborde fechas como 31 de octubre al calcular noviembre.
             val prevMonthCal = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_MONTH, 1)
                 set(Calendar.YEAR, year)
                 set(Calendar.MONTH, month)
                 add(Calendar.MONTH, -1)
@@ -194,7 +196,15 @@ object BudgetCycleManager {
             val prevYear = prevMonthCal.get(Calendar.YEAR)
             val prevMonth = prevMonthCal.get(Calendar.MONTH)
             val prevMaxDays = prevMonthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            val actualStartDay = startDay.coerceIn(1, prevMaxDays)
+            val actualStartDay = normalizedStartDay.coerceAtMost(prevMaxDays)
+
+            val targetMonthCal = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+            }
+            val targetMaxDays = targetMonthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val actualEndBoundaryDay = normalizedStartDay.coerceAtMost(targetMaxDays)
 
             startCal.apply {
                 set(Calendar.YEAR, prevYear)
@@ -206,28 +216,28 @@ object BudgetCycleManager {
                 set(Calendar.MILLISECOND, 0)
             }
 
-            val targetMonthCal = Calendar.getInstance().apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-            }
-            val targetMaxDays = targetMonthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            val actualEndDay = (startDay - 1).coerceIn(1, targetMaxDays)
-
+            // El ciclo termina el día anterior al siguiente corte efectivo.
+            // En febrero, por ejemplo, un corte 30/31 cae el último día del mes.
             endCal.apply {
                 set(Calendar.YEAR, year)
                 set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, actualEndDay)
+                set(Calendar.DAY_OF_MONTH, actualEndBoundaryDay)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                add(Calendar.DAY_OF_MONTH, -1)
                 set(Calendar.HOUR_OF_DAY, 23)
                 set(Calendar.MINUTE, 59)
                 set(Calendar.SECOND, 59)
                 set(Calendar.MILLISECOND, 999)
             }
 
+            val actualEndDay = endCal.get(Calendar.DAY_OF_MONTH)
             val startDateMillis = startCal.timeInMillis
             val endDateMillis = endCal.timeInMillis
             val isCurrentCycle = nowMillis in startDateMillis..endDateMillis
 
-            // Cálculo preciso de días totales en el ciclo
             val diffMillis = (endDateMillis - startDateMillis).coerceAtLeast(0)
             val totalDays = (diffMillis / (24L * 60 * 60 * 1000) + 1).toInt().coerceAtLeast(1)
 
@@ -245,7 +255,7 @@ object BudgetCycleManager {
             return BudgetCycleRange(
                 year = year,
                 month = month,
-                startDayOfMonth = startDay,
+                startDayOfMonth = normalizedStartDay,
                 startDateMillis = startDateMillis,
                 endDateMillis = endDateMillis,
                 cycleName = cycleMonthName,
@@ -256,7 +266,6 @@ object BudgetCycleManager {
             )
         }
     }
-
     /**
      * Retorna el ciclo financiero actualmente en curso según la fecha actual del sistema.
      */
@@ -264,6 +273,7 @@ object BudgetCycleManager {
         startDay: Int = getStartDay(),
         nowMillis: Long = System.currentTimeMillis()
     ): BudgetCycleRange {
+        val normalizedStartDay = startDay.coerceIn(1, 31)
         val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val curDay = nowCal.get(Calendar.DAY_OF_MONTH)
         val curYear = nowCal.get(Calendar.YEAR)
@@ -272,29 +282,33 @@ object BudgetCycleManager {
         val targetYear: Int
         val targetMonth: Int
 
-        if (startDay == 1) {
+        if (normalizedStartDay == 1) {
             targetYear = curYear
             targetMonth = curMonth
         } else {
-            if (curDay >= startDay) {
-                // Ya ocurrió el corte; los ingresos y gastos se atribuyen al mes siguiente
-                if (curMonth == 11) {
+            // Si el día configurado no existe en este mes (30/31 en febrero,
+            // 31 en un mes de 30 días), el corte efectivo es el último día.
+            val effectiveStartDay = normalizedStartDay.coerceAtMost(
+                nowCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            )
+
+            if (curDay >= effectiveStartDay) {
+                // El corte ya ocurrió; los ingresos y gastos pertenecen al ciclo siguiente.
+                if (curMonth == Calendar.DECEMBER) {
                     targetYear = curYear + 1
-                    targetMonth = 0
+                    targetMonth = Calendar.JANUARY
                 } else {
                     targetYear = curYear
                     targetMonth = curMonth + 1
                 }
             } else {
-                // Aún no llega al día de corte; pertenece al ciclo del mes actual
                 targetYear = curYear
                 targetMonth = curMonth
             }
         }
 
-        return getCycleRange(targetYear, targetMonth, startDay, nowMillis)
+        return getCycleRange(targetYear, targetMonth, normalizedStartDay, nowMillis)
     }
-
     /**
      * Retorna el ciclo inmediatamente anterior al rango provisto.
      */

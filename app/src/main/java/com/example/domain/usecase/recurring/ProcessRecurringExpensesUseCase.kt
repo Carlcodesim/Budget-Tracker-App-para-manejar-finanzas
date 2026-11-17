@@ -17,8 +17,11 @@ class ProcessRecurringExpensesUseCase(
         return repository.processRecurringExpenses(targetYearMonth, forceAllDue)
     }
 
-    suspend fun executeNow(recurringExpenseId: Long): Boolean {
-        return repository.executeSingleRecurringExpenseNow(recurringExpenseId)
+    suspend fun executeNow(recurringExpenseId: Long, paidAmount: Double): Boolean {
+        require(paidAmount > 0.0 && paidAmount.isFinite()) {
+            "El importe pagado debe ser un número válido mayor que cero."
+        }
+        return repository.executeSingleRecurringExpenseNow(recurringExpenseId, paidAmount)
     }
 
     suspend fun toggleEnabled(recurringExpenseId: Long, isEnabled: Boolean) {

@@ -250,7 +250,10 @@ private fun ExecutiveSummaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    val cycleRange = remember { com.example.util.BudgetCycleManager.getCurrentCycleRange() }
+                    val cycleStartDay by com.example.util.BudgetCycleManager.startDayFlow.collectAsStateWithLifecycle()
+                    val cycleRange = remember(cycleStartDay) {
+                        com.example.util.BudgetCycleManager.getCurrentCycleRange(cycleStartDay)
+                    }
                     Text(
                         text = if (cycleRange.isCustomCycle) "Balance del Ciclo (${cycleRange.dateRangeLabel})" else "Balance Neto del Mes",
                         style = MaterialTheme.typography.labelMedium,

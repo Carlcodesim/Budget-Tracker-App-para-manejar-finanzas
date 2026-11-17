@@ -4,6 +4,7 @@ import com.example.data.local.entity.RecurringExpenseEntity
 import com.example.domain.model.Account
 import com.example.domain.model.Category
 import com.example.domain.model.RecurringExpense
+import com.example.domain.model.RecurrenceFrequency
 
 /**
  * Funciones de extensión para mapear gastos recurrentes entre la capa de datos y el dominio.
@@ -22,6 +23,9 @@ fun RecurringExpenseEntity.toDomain(category: Category, account: Account? = null
         isEnabled = isEnabled,
         lastExecutedMonth = lastExecutedMonth,
         autoCreate = autoCreate,
+        frequency = RecurrenceFrequency.fromStorage(frequency),
+        anchorDate = anchorDate,
+        nextDueDate = nextDueDate,
         createdAt = createdAt
     )
 }
@@ -39,6 +43,9 @@ fun RecurringExpense.toEntity(): RecurringExpenseEntity {
         isEnabled = isEnabled,
         lastExecutedMonth = lastExecutedMonth,
         autoCreate = autoCreate,
+        frequency = frequency.name,
+        anchorDate = anchorDate,
+        nextDueDate = nextDueDate,
         createdAt = createdAt
     )
 }

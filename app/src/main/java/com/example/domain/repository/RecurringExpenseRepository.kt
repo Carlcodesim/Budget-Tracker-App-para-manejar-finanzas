@@ -37,5 +37,5 @@ interface RecurringExpenseRepository {
     /**
      * Fuerza la creación inmediata de la transacción correspondiente a un gasto recurrente específico.
      */
-    suspend fun executeSingleRecurringExpenseNow(id: Long): Boolean
+    suspend fun executeSingleRecurringExpenseNow(id: Long, paidAmount: Double): Boolean
 }

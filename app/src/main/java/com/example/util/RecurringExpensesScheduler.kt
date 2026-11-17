@@ -12,6 +12,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.worker.RecurringExpensesWorker
+import com.example.data.recovery.DatabaseAccessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,6 +36,7 @@ object RecurringExpensesScheduler {
      * Programa todos los mecanismos de background worker y alarma periódica.
      */
     fun scheduleAll(context: Context) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return
         schedulePeriodicWork(context)
         scheduleDailyAlarm(context)
         runImmediateCheck(context)
@@ -44,6 +46,7 @@ object RecurringExpensesScheduler {
      * Encola un trabajo periódico con WorkManager que se ejecuta cada 24 horas.
      */
     fun schedulePeriodicWork(context: Context) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return
         try {
             val constraints = Constraints.Builder()
                 .build()
@@ -73,6 +76,7 @@ object RecurringExpensesScheduler {
      * en segundo plano, evitando sobrecargar el JobScheduler del sistema al arrancar.
      */
     fun runImmediateCheck(context: Context) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val app = context.applicationContext as? com.example.BudgetTrackerApp
@@ -102,6 +106,7 @@ object RecurringExpensesScheduler {
      * para asegurar el procesamiento justo al comenzar el día de cobro.
      */
     fun scheduleDailyAlarm(context: Context) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) return
         try {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 

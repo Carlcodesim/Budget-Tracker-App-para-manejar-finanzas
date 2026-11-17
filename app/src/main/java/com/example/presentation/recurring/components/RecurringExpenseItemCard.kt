@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
@@ -34,6 +35,8 @@ import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallet
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,9 +46,11 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,9 +64,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.RecurringExpense
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -69,15 +79,34 @@ fun RecurringExpenseItemCard(
     expense: RecurringExpense,
     currentYearMonth: String,
     currentDay: Int,
-    onExecuteNow: () -> Unit,
+    onExecuteNow: (Double) -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    val isExecutedThisMonth = expense.isExecutedInMonth(currentYearMonth)
-    val daysUntilDue = expense.dayOfMonth - currentDay
+    var showPaymentDialog by remember(expense.id) { mutableStateOf(false) }
+    var paymentAmountText by remember(expense.id, expense.amount) { mutableStateOf(expense.amount.toString()) }
+    val paidAmount = paymentAmountText.replace(',', '.').toDoubleOrNull()
+    val isExecutedThisMonth = expense.paymentCountThisMonth > 0
+    val nextDueDate = expense.resolvedNextDueDate()
+    val dueCalendar = Calendar.getInstance().apply { timeInMillis = nextDueDate }
+    val todayStart = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val dueDateStart = (dueCalendar.clone() as Calendar).apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val daysUntilDue = ((dueDateStart - todayStart) / 86_400_000L).toInt()
+    val isDueToRegister = nextDueDate <= System.currentTimeMillis()
+    val formattedDueDate = SimpleDateFormat("dd/MM/yyyy", Locale("es", "DO")).format(Date(nextDueDate))
 
     Card(
         modifier = modifier
@@ -94,9 +123,9 @@ fun RecurringExpenseItemCard(
             }
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (expense.isEnabled && !isExecutedThisMonth) 3.dp else 1.dp
+            defaultElevation = if (expense.isEnabled && isDueToRegister) 3.dp else 1.dp
         ),
-        border = if (expense.isEnabled && !isExecutedThisMonth && daysUntilDue in 0..2) {
+        border = if (expense.isEnabled && isDueToRegister && daysUntilDue in -2..2) {
             CardDefaults.outlinedCardBorder().copy(
                 brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f)),
                 width = 1.5.dp
@@ -190,9 +219,19 @@ fun RecurringExpenseItemCard(
                         }
                     )
                     Text(
-                        text = "/mes",
+                        text = when (expense.frequency) {
+                            com.example.domain.model.RecurrenceFrequency.WEEKLY -> "/semana"
+                            com.example.domain.model.RecurrenceFrequency.BIWEEKLY -> "/15 días"
+                            com.example.domain.model.RecurrenceFrequency.MONTHLY -> "/mes"
+                            com.example.domain.model.RecurrenceFrequency.YEARLY -> "/año"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (expense.autoCreate) "Automático" else "Registro manual",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (expense.autoCreate) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -221,13 +260,13 @@ fun RecurringExpenseItemCard(
                                 onEdit()
                             }
                         )
-                        if (expense.isEnabled) {
+                        if (expense.isEnabled && isDueToRegister) {
                             DropdownMenuItem(
-                                text = { Text("Generar transacción ahora") },
+                                text = { Text("Registrar pago realizado") },
                                 leadingIcon = { Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                 onClick = {
                                     menuExpanded = false
-                                    onExecuteNow()
+                                    showPaymentDialog = true
                                 }
                             )
                         }
@@ -284,7 +323,7 @@ fun RecurringExpenseItemCard(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Día ${expense.dayOfMonth}",
+                                text = "Próximo: $formattedDueDate",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -300,10 +339,17 @@ fun RecurringExpenseItemCard(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    } else if (isDueToRegister) {
+                        StatusChip(
+                            icon = Icons.Default.PendingActions,
+                            text = "Pago pendiente",
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
                     } else if (isExecutedThisMonth) {
                         StatusChip(
                             icon = Icons.Default.CheckCircle,
-                            text = "Cobrado este mes",
+                            text = "Registrado este mes",
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -336,9 +382,9 @@ fun RecurringExpenseItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (expense.isEnabled && !isExecutedThisMonth) {
+                    if (expense.isEnabled && isDueToRegister) {
                         FilledTonalButton(
-                            onClick = onExecuteNow,
+                            onClick = { showPaymentDialog = true },
                             modifier = Modifier
                                 .height(32.dp)
                                 .testTag("btn_execute_${expense.id}"),
@@ -356,7 +402,7 @@ fun RecurringExpenseItemCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Cobrar",
+                                text = "Registrar pago",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -375,6 +421,56 @@ fun RecurringExpenseItemCard(
                 }
             }
         }
+
+    }
+
+    if (showPaymentDialog) {
+        AlertDialog(
+            onDismissRequest = { showPaymentDialog = false },
+            title = { Text("Registrar pago realizado") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Importe planificado: RD$" + String.format(Locale.US, "%,.2f", expense.amount) + ". " +
+                            "Indica cuánto pagaste realmente. Ese será el monto que se agregará a tus movimientos."
+                    )
+                    OutlinedTextField(
+                        value = paymentAmountText,
+                        onValueChange = { paymentAmountText = it },
+                        label = { Text("Importe realmente pagado") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        isError = paidAmount == null || paidAmount <= 0.0 || !paidAmount.isFinite(),
+                        modifier = Modifier.testTag("input_actual_recurring_payment")
+                    )
+                    if (paidAmount == null || paidAmount <= 0.0 || !paidAmount.isFinite()) {
+                        Text(
+                            text = "Introduce un importe válido mayor que cero.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        paidAmount?.takeIf { it > 0.0 && it.isFinite() }?.let { amount ->
+                            showPaymentDialog = false
+                            onExecuteNow(amount)
+                        }
+                    },
+                    enabled = paidAmount != null && paidAmount > 0.0 && paidAmount.isFinite()
+                ) {
+                    Text("Guardar pago")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPaymentDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 

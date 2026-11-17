@@ -10,6 +10,7 @@ import android.widget.RemoteViews
 import com.example.MainActivity
 import com.example.R
 import com.example.data.local.AppDatabase
+import com.example.data.recovery.DatabaseAccessGate
 import com.example.presentation.common.util.CurrencyFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,8 +28,20 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        if (!DatabaseAccessGate.isNormalAccessAllowed()) {
+            appWidgetIds.forEach { appWidgetId ->
+                val views = RemoteViews(context.packageName, R.layout.balance_widget_layout).apply {
+                    setTextViewText(R.id.widget_balance, "Modo seguro")
+                    setTextViewText(R.id.widget_subtitle, "Acceso a datos bloqueado")
+                }
+                appWidgetManager.updateAppWidget(appWidgetId, views)
+            }
+            return
+        }
+
         // Ejecutar cálculo en un hilo de fondo (Room no permite lecturas en el hilo principal)
         CoroutineScope(Dispatchers.IO).launch {
+            DatabaseAccessGate.requireNormalAccess()
             val db = AppDatabase.getDatabase(context, CoroutineScope(Dispatchers.IO))
             
             // 1. Obtener balance de cuentas
